@@ -1,0 +1,18 @@
+[Unit]
+Description=AnyConnect/OpenConnect split-tunnel access
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=CONFIG_FILE=/etc/ecnu-ssh/connect-campus-server.env
+Environment=PID_FILE=/run/ecnu-openconnect.pid
+Environment=LOG_FILE=/var/log/ecnu-openconnect.log
+ExecStart=/usr/local/bin/connect-campus-server.sh connect
+ExecStop=/usr/local/bin/connect-campus-server.sh disconnect
+TimeoutStartSec=90
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

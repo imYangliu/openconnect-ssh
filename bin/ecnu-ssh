@@ -1,0 +1,288 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+WRAPPER_CONFIG_FILE="${WRAPPER_CONFIG_FILE:-$HOME/.config/ecnu-ssh.env}"
+
+if [[ -r "$WRAPPER_CONFIG_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$WRAPPER_CONFIG_FILE"
+fi
+
+CONNECT_SCRIPT="${CONNECT_SCRIPT:-/usr/local/bin/connect-campus-server.sh}"
+VPN_SERVICE="${VPN_SERVICE:-ecnu-openconnect.service}"
+DEFAULT_HOST="${DEFAULT_HOST:-}"
+PROXY_LOCAL_HOST="${PROXY_LOCAL_HOST:-127.0.0.1}"
+PROXY_LOCAL_PORT="${PROXY_LOCAL_PORT:-7890}"
+PROXY_REMOTE_PORT="${PROXY_REMOTE_PORT:-7890}"
+
+log() {
+  echo "[ecnu-ssh] $*" >&2
+}
+
+die() {
+  log "$*"
+  exit 1
+}
+
+usage() {
+  cat <<EOF
+用法:
+  $(basename "$0") [ssh 参数...]
+  $(basename "$0") --proxy [ssh 参数...]
+
+说明:
+  这是一个面向 AnyConnect / OpenConnect 场景的 SSH 包装器。
+  在执行 ssh 之前会先验证 VPN 连通性；若断开，则自动尝试重连。
+
+行为:
+  - 若参数里已经包含目标主机，则按原样转交给 ssh
+  - 若未提供目标主机，则使用 DEFAULT_HOST；若未配置 DEFAULT_HOST，则报错
+  - 使用 --proxy 时，会额外添加远端端口映射：${PROXY_REMOTE_PORT} -> ${PROXY_LOCAL_HOST}:${PROXY_LOCAL_PORT}
+
+示例:
+  $(basename "$0") ecnu-target
+  $(basename "$0") --proxy ecnu-target
+  $(basename "$0") --proxy -N ecnu-target
+  $(basename "$0") -L 8080:127.0.0.1:8080 ecnu-target
+
+环境变量:
+  WRAPPER_CONFIG_FILE ecnu-ssh 配置文件，默认 ${WRAPPER_CONFIG_FILE}
+  CONNECT_SCRIPT      VPN 连接脚本路径，默认 ${CONNECT_SCRIPT}
+  VPN_SERVICE         systemd 服务名，默认 ${VPN_SERVICE}
+  DEFAULT_HOST        缺省 SSH 目标主机；未设置时必须显式传入目标主机
+  PROXY_LOCAL_HOST    --proxy 映射到的本地地址，默认 ${PROXY_LOCAL_HOST}
+  PROXY_LOCAL_PORT    --proxy 映射到的本地端口，默认 ${PROXY_LOCAL_PORT}
+  PROXY_REMOTE_PORT   --proxy 暴露到远端的端口，默认 ${PROXY_REMOTE_PORT}
+EOF
+}
+
+require_tool() {
+  local tool="$1"
+
+  if [[ "$tool" == */* ]]; then
+    [[ -x "$tool" ]] || die "缺少可执行文件: $tool"
+    return 0
+  fi
+
+  command -v "$tool" >/dev/null 2>&1 || die "缺少依赖命令: $tool"
+}
+
+is_flag_cluster() {
+  [[ "$1" =~ ^-[46AaCfGgKkMNnqsTtVvXxYy]+$ ]]
+}
+
+option_takes_value() {
+  case "$1" in
+    -B|-b|-c|-D|-E|-e|-F|-I|-i|-J|-L|-l|-m|-O|-o|-p|-Q|-R|-S|-W|-w)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+find_destination() {
+  local arg
+  local expect_value=0
+  local stop_option_parsing=0
+
+  for arg in "$@"; do
+    if (( expect_value )); then
+      expect_value=0
+      continue
+    fi
+
+    if (( stop_option_parsing )); then
+      printf '%s\n' "$arg"
+      return 0
+    fi
+
+    case "$arg" in
+      --)
+        stop_option_parsing=1
+        ;;
+      -*)
+        if is_flag_cluster "$arg"; then
+          continue
+        fi
+
+        if option_takes_value "${arg:0:2}"; then
+          if [[ "${#arg}" -eq 2 ]]; then
+            expect_value=1
+          fi
+          continue
+        fi
+
+        continue
+        ;;
+      *)
+        printf '%s\n' "$arg"
+        return 0
+        ;;
+    esac
+  done
+
+  return 1
+}
+
+strip_wrapper_args() {
+  local arg
+  local expect_value=0
+  local destination_found=0
+
+  WRAPPER_PROXY_MODE=0
+  WRAPPER_SSH_ARGS=()
+
+  for arg in "$@"; do
+    if (( expect_value )); then
+      WRAPPER_SSH_ARGS+=("$arg")
+      expect_value=0
+      continue
+    fi
+
+    if (( destination_found )); then
+      WRAPPER_SSH_ARGS+=("$arg")
+      continue
+    fi
+
+    case "$arg" in
+      --proxy)
+        WRAPPER_PROXY_MODE=1
+        continue
+        ;;
+      --)
+        WRAPPER_SSH_ARGS+=("$arg")
+        destination_found=1
+        continue
+        ;;
+      -*)
+        WRAPPER_SSH_ARGS+=("$arg")
+        if is_flag_cluster "$arg"; then
+          continue
+        fi
+
+        if option_takes_value "${arg:0:2}" && [[ "${#arg}" -eq 2 ]]; then
+          expect_value=1
+        fi
+        continue
+        ;;
+      *)
+        WRAPPER_SSH_ARGS+=("$arg")
+        destination_found=1
+        continue
+        ;;
+    esac
+  done
+}
+
+resolve_target() {
+  local destination="$1"
+  local resolved
+
+  RESOLVED_HOST="$destination"
+  RESOLVED_PORT=""
+  RESOLVED_USER=""
+
+  if ! resolved=$(ssh -G "$destination" 2>/dev/null); then
+    return 0
+  fi
+
+  RESOLVED_HOST=$(awk '$1 == "hostname" { print $2; exit }' <<<"$resolved")
+  RESOLVED_PORT=$(awk '$1 == "port" { print $2; exit }' <<<"$resolved")
+  RESOLVED_USER=$(awk '$1 == "user" { print $2; exit }' <<<"$resolved")
+}
+
+run_connect_script() {
+  local subcommand="$1"
+  shift
+
+  local -a env_args=()
+
+  [[ -n "${RESOLVED_HOST:-}" ]] && env_args+=("TARGET_HOST=${RESOLVED_HOST}")
+  [[ -n "${RESOLVED_PORT:-}" ]] && env_args+=("TARGET_PORT=${RESOLVED_PORT}")
+  [[ -n "${RESOLVED_USER:-}" ]] && env_args+=("TARGET_SSH_USER=${RESOLVED_USER}")
+
+  env "${env_args[@]}" "$CONNECT_SCRIPT" "$subcommand" "$@"
+}
+
+verify_vpn() {
+  run_connect_script verify >/dev/null 2>&1
+}
+
+restart_vpn_service() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    return 1
+  fi
+
+  if ! systemctl cat "$VPN_SERVICE" >/dev/null 2>&1; then
+    return 1
+  fi
+
+  log "VPN 不可达，正在重启 ${VPN_SERVICE}"
+  systemctl restart "$VPN_SERVICE"
+}
+
+ensure_vpn() {
+  if verify_vpn; then
+    log "VPN 连通性正常"
+    return 0
+  fi
+
+  if restart_vpn_service && verify_vpn; then
+    log "VPN 已恢复"
+    return 0
+  fi
+
+  log "改为直接调用 VPN 连接脚本"
+  run_connect_script connect
+
+  if verify_vpn; then
+    log "VPN 已恢复"
+    return 0
+  fi
+
+  die "重连后仍无法访问目标，检查日志：${CONNECT_SCRIPT} logs"
+}
+
+main() {
+  require_tool ssh
+  require_tool "$CONNECT_SCRIPT"
+
+  strip_wrapper_args "$@"
+  local -a ssh_args=("${WRAPPER_SSH_ARGS[@]}")
+  local destination=""
+  local proxy_mode="${WRAPPER_PROXY_MODE}"
+
+  if [[ "${#ssh_args[@]}" -eq 1 ]]; then
+    case "${ssh_args[0]}" in
+      -h|--help|help)
+        usage
+        exit 0
+        ;;
+    esac
+  fi
+
+  if ! destination=$(find_destination "${ssh_args[@]}"); then
+    if [[ -z "$DEFAULT_HOST" ]]; then
+      die "未提供目标主机，请传入 SSH host，或在 ${WRAPPER_CONFIG_FILE} 中设置 DEFAULT_HOST"
+    fi
+    destination="$DEFAULT_HOST"
+    ssh_args+=("$destination")
+  fi
+
+  if (( proxy_mode )); then
+    log "启用代理映射: 远端 ${PROXY_REMOTE_PORT} -> 本地 ${PROXY_LOCAL_HOST}:${PROXY_LOCAL_PORT}"
+    ssh_args+=(
+      -o "ExitOnForwardFailure=yes"
+      -R "${PROXY_REMOTE_PORT}:${PROXY_LOCAL_HOST}:${PROXY_LOCAL_PORT}"
+    )
+  fi
+
+  resolve_target "$destination"
+  ensure_vpn
+
+  exec ssh "${ssh_args[@]}"
+}
+
+main "$@"

@@ -1,0 +1,6 @@
+Host ecnu-target
+  HostName your-campus-host.example
+  User your-ssh-user
+  Port 22
+  ServerAliveInterval 30
+  ServerAliveCountMax 3
