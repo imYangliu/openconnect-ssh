@@ -13,6 +13,7 @@ Originally built for a campus workflow, this repository has been sanitized for p
 - Auto-check VPN reachability before running `ssh`
 - Recover connectivity by restarting a systemd service or calling the VPN script directly
 - Keep split tunneling intact with `vpn-slice` or `uvx`
+- Optionally run a systemd timer that only restarts VPN after repeated failed checks
 - Optionally expose a local proxy or service to the remote machine with `ssh -R`
 - Store all environment-specific values outside the repository
 
@@ -22,12 +23,15 @@ Originally built for a campus workflow, this repository has been sanitized for p
 bin/
   ecnu-ssh
   connect-campus-server.sh
+  ecnu-openconnect-keepalive.sh
 examples/
   ecnu-connect-campus-server.env.example
   ecnu-ssh.env.example
   ssh_config.example
 systemd/
   ecnu-openconnect.service
+  ecnu-openconnect-keepalive.service
+  ecnu-openconnect-keepalive.timer
 install.sh
 ```
 
@@ -98,6 +102,12 @@ sudo ./install.sh
 ```bash
 sudo INSTALL_SYSTEMD=1 ./install.sh
 sudo systemctl daemon-reload
+```
+
+如果你还希望启用周期 keepalive timer，再执行：
+
+```bash
+sudo systemctl enable --now ecnu-openconnect-keepalive.timer
 ```
 
 ## 使用方式
@@ -172,9 +182,11 @@ ecnu-ssh --proxy
 
 ## systemd 示例
 
-仓库内提供了一个示例单元文件：
+仓库内提供了这些示例单元文件：
 
 - `systemd/ecnu-openconnect.service`
+- `systemd/ecnu-openconnect-keepalive.service`
+- `systemd/ecnu-openconnect-keepalive.timer`
 
 默认假设配置文件位于：
 
@@ -190,6 +202,23 @@ sudo cp examples/ecnu-connect-campus-server.env.example /etc/ecnu-ssh/connect-ca
 sudo chmod 600 /etc/ecnu-ssh/connect-campus-server.env
 ```
 
+### keepalive timer 行为
+
+`ecnu-openconnect-keepalive.timer` 默认每约 2 分钟触发一次巡检。
+
+对应的 `ecnu-openconnect-keepalive.service` 不会在单次 `verify` 失败时立刻重启 VPN，而是通过 `ecnu-openconnect-keepalive.sh` 记录连续失败次数：
+
+- `FAIL_THRESHOLD=2` 时，第一次失败只记数
+- 连续第二次失败才执行 `systemctl restart ecnu-openconnect.service`
+- 一旦 `verify` 恢复成功，会清空失败计数
+
+默认参数写在 unit 文件里：
+
+- `FAIL_THRESHOLD=2`
+- `STATE_DIR=/run/ecnu-openconnect-keepalive`
+
+如果你想调阈值，建议通过 systemd drop-in 覆盖环境变量，而不是直接修改仓库文件。
+
 ## 安全提示
 
 - 不要把真实的 `VPN_USER`、`VPN_PASSWORD`、主机地址、端口提交到仓库。
@@ -203,12 +232,13 @@ sudo chmod 600 /etc/ecnu-ssh/connect-campus-server.env
 ```bash
 bash -n bin/ecnu-ssh
 bash -n bin/connect-campus-server.sh
+bash -n bin/ecnu-openconnect-keepalive.sh
 ```
 
 如果系统装了 `shellcheck`，建议再跑一遍：
 
 ```bash
-shellcheck bin/ecnu-ssh bin/connect-campus-server.sh install.sh
+shellcheck bin/ecnu-ssh bin/connect-campus-server.sh bin/ecnu-openconnect-keepalive.sh install.sh
 ```
 
 ## License

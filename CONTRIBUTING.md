@@ -7,8 +7,9 @@ Run the local checks:
 ```bash
 bash -n bin/ecnu-ssh
 bash -n bin/connect-campus-server.sh
+bash -n bin/ecnu-openconnect-keepalive.sh
 bash -n install.sh
-shellcheck bin/ecnu-ssh bin/connect-campus-server.sh install.sh
+shellcheck bin/ecnu-ssh bin/connect-campus-server.sh bin/ecnu-openconnect-keepalive.sh install.sh
 ```
 
 ## Security Rules
