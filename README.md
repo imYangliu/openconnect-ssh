@@ -206,16 +206,19 @@ sudo chmod 600 /etc/ecnu-ssh/connect-campus-server.env
 
 `ecnu-openconnect-keepalive.timer` 默认每约 2 分钟触发一次巡检。
 
-对应的 `ecnu-openconnect-keepalive.service` 不会在单次 `verify` 失败时立刻重启 VPN，而是通过 `ecnu-openconnect-keepalive.sh` 记录连续失败次数：
+对应的 `ecnu-openconnect-keepalive.service` 不会直接拿 `connect-campus-server.sh verify` 作为判定，而是通过 `ecnu-openconnect-keepalive.sh` 用 `ping` 轻探测目标主机，并记录连续失败次数：
 
 - `FAIL_THRESHOLD=2` 时，第一次失败只记数
 - 连续第二次失败才执行 `systemctl restart ecnu-openconnect.service`
-- 一旦 `verify` 恢复成功，会清空失败计数
+- 一旦 `ping` 恢复成功，会清空失败计数
+- 默认探测目标来自 `CONFIG_FILE` 里的 `TARGET_HOST`；如果需要单独指定，可额外设置 `PROBE_HOST`
 
 默认参数写在 unit 文件里：
 
 - `FAIL_THRESHOLD=2`
 - `STATE_DIR=/run/ecnu-openconnect-keepalive`
+- `PING_COUNT=1`
+- `PING_TIMEOUT=1`
 
 如果你想调阈值，建议通过 systemd drop-in 覆盖环境变量，而不是直接修改仓库文件。
 

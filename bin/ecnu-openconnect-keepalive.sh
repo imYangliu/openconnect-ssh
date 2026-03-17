@@ -2,13 +2,41 @@
 set -euo pipefail
 
 VPN_SERVICE="${VPN_SERVICE:-ecnu-openconnect.service}"
-CONNECT_SCRIPT="${CONNECT_SCRIPT:-/usr/local/bin/connect-campus-server.sh}"
+CONFIG_FILE="${CONFIG_FILE:-$HOME/.config/ecnu-connect-campus-server.env}"
 FAIL_THRESHOLD="${FAIL_THRESHOLD:-2}"
 STATE_DIR="${STATE_DIR:-/run/ecnu-openconnect-keepalive}"
 FAIL_COUNT_FILE="${FAIL_COUNT_FILE:-${STATE_DIR}/fail-count}"
+PROBE_HOST="${PROBE_HOST:-}"
+PING_BIN="${PING_BIN:-ping}"
+PING_COUNT="${PING_COUNT:-1}"
+PING_TIMEOUT="${PING_TIMEOUT:-1}"
+
+if [[ -r "$CONFIG_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE"
+fi
+
+PROBE_HOST="${PROBE_HOST:-${TARGET_HOST:-}}"
 
 log() {
   echo "[ecnu-openconnect-keepalive] $*"
+}
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    log "missing required command: $1"
+    exit 1
+  }
+}
+
+validate_positive_int() {
+  local name="$1"
+  local value="$2"
+
+  if ! [[ "$value" =~ ^[0-9]+$ ]] || (( value < 1 )); then
+    log "${name} must be an integer >= 1, got: ${value}"
+    exit 1
+  fi
 }
 
 reset_fail_count() {
@@ -34,11 +62,21 @@ write_fail_count() {
   printf '%s\n' "$1" >"$FAIL_COUNT_FILE"
 }
 
-main() {
-  if ! [[ "$FAIL_THRESHOLD" =~ ^[0-9]+$ ]] || (( FAIL_THRESHOLD < 1 )); then
-    log "FAIL_THRESHOLD must be an integer >= 1, got: ${FAIL_THRESHOLD}"
-    exit 1
+run_probe() {
+  require_cmd "$PING_BIN"
+
+  if [[ -z "$PROBE_HOST" ]]; then
+    log "PROBE_HOST or TARGET_HOST is required for ping-based keepalive"
+    return 1
   fi
+
+  "$PING_BIN" -n -q -c "$PING_COUNT" -W "$PING_TIMEOUT" "$PROBE_HOST" >/dev/null 2>&1
+}
+
+main() {
+  validate_positive_int "FAIL_THRESHOLD" "$FAIL_THRESHOLD"
+  validate_positive_int "PING_COUNT" "$PING_COUNT"
+  validate_positive_int "PING_TIMEOUT" "$PING_TIMEOUT"
 
   if ! systemctl is-active --quiet "$VPN_SERVICE"; then
     reset_fail_count
@@ -46,9 +84,9 @@ main() {
     return 0
   fi
 
-  if "$CONNECT_SCRIPT" verify >/dev/null 2>&1; then
+  if run_probe; then
     if [[ -e "$FAIL_COUNT_FILE" ]]; then
-      log "verify recovered, clearing failure counter"
+      log "ping to ${PROBE_HOST} recovered, clearing failure counter"
     fi
     reset_fail_count
     return 0
@@ -59,7 +97,7 @@ main() {
   fail_count=$((fail_count + 1))
   write_fail_count "$fail_count"
 
-  log "verify failed (${fail_count}/${FAIL_THRESHOLD})"
+  log "ping to ${PROBE_HOST} failed (${fail_count}/${FAIL_THRESHOLD})"
   if (( fail_count < FAIL_THRESHOLD )); then
     return 0
   fi

@@ -6,7 +6,9 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 Environment=VPN_SERVICE=ecnu-openconnect.service
-Environment=CONNECT_SCRIPT=/usr/local/bin/connect-campus-server.sh
+Environment=CONFIG_FILE=/etc/ecnu-ssh/connect-campus-server.env
 Environment=FAIL_THRESHOLD=2
 Environment=STATE_DIR=/run/ecnu-openconnect-keepalive
+Environment=PING_COUNT=1
+Environment=PING_TIMEOUT=1
 ExecStart=/usr/local/bin/ecnu-openconnect-keepalive.sh
