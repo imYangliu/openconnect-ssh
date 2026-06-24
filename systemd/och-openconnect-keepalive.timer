@@ -5,7 +5,7 @@ Description=Periodic keepalive for OpenConnect split-tunnel access
 OnBootSec=2min
 OnUnitActiveSec=2min
 RandomizedDelaySec=20s
-Unit=ecnu-openconnect-keepalive.service
+Unit=och-openconnect-keepalive.service
 
 [Install]
 WantedBy=timers.target

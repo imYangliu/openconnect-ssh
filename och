@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -z "${OCH_LIBEXEC_DIR:-}" ]]; then
+  if [[ -x "$SCRIPT_DIR/src/och.sh" ]]; then
+    OCH_LIBEXEC_DIR="$SCRIPT_DIR/src"
+  elif [[ -x "$SCRIPT_DIR/../libexec/och/och.sh" ]]; then
+    OCH_LIBEXEC_DIR="$SCRIPT_DIR/../libexec/och"
+  else
+    echo "Error: cannot find och implementation" >&2
+    exit 1
+  fi
+fi
+
+if [[ -z "${PROJECT_ENV_FILE:-}" && -r "$SCRIPT_DIR/.env" ]]; then
+  export PROJECT_ENV_FILE="$SCRIPT_DIR/.env"
+fi
+
+export OCH_COMMAND_NAME="$(basename "$0")"
+
+if [[ -z "${CONNECT_SCRIPT:-}" ]]; then
+  export CONNECT_SCRIPT="$OCH_LIBEXEC_DIR/och-vpn.sh"
+fi
+
+exec "$OCH_LIBEXEC_DIR/och.sh" "$@"

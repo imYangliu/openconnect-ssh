@@ -5,12 +5,14 @@
 Run the local checks:
 
 ```bash
-bash -n ecnu-ssh
-bash -n src/ecnu-ssh.sh
-bash -n src/connect-campus-server.sh
-bash -n src/ecnu-openconnect-keepalive.sh
+bash -n och
+bash -n src/och.sh
+bash -n src/och-vpn.sh
+bash -n src/och-openconnect-keepalive.sh
+bash -n src/macos-vpnc-route-wrapper.sh
+bash -n src/och-sudo-askpass.sh
 bash -n install.sh
-shellcheck ecnu-ssh src/ecnu-ssh.sh src/connect-campus-server.sh src/ecnu-openconnect-keepalive.sh install.sh
+shellcheck och src/och.sh src/och-vpn.sh src/och-openconnect-keepalive.sh src/macos-vpnc-route-wrapper.sh src/och-sudo-askpass.sh install.sh
 ```
 
 ## Security Rules

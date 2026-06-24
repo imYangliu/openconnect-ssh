@@ -1,4 +1,4 @@
-Host ecnu-target
+Host och-target
   HostName your-campus-host.example
   User your-ssh-user
   Port 22

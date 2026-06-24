@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WRAPPER_CONFIG_FILE="${WRAPPER_CONFIG_FILE:-$HOME/.config/ecnu-ssh.env}"
-ECNU_SSH_COMMAND_NAME="${ECNU_SSH_COMMAND_NAME:-$(basename "$0")}"
+WRAPPER_CONFIG_FILE="${WRAPPER_CONFIG_FILE:-$HOME/.config/och/och.env}"
+OCH_COMMAND_NAME="${OCH_COMMAND_NAME:-$(basename "$0")}"
 
 load_env_file() {
   local env_file="$1"
@@ -27,16 +27,16 @@ elif [[ -n "${PROJECT_ENV_FILE:-}" ]]; then
   load_env_file "$PROJECT_ENV_FILE"
 fi
 
-DEFAULT_CONNECT_SCRIPT="$(command -v connect-campus-server.sh 2>/dev/null || printf '/usr/local/bin/connect-campus-server.sh')"
+DEFAULT_CONNECT_SCRIPT="$(command -v och-vpn 2>/dev/null || printf '/usr/local/bin/och-vpn')"
 CONNECT_SCRIPT="${CONNECT_SCRIPT:-$DEFAULT_CONNECT_SCRIPT}"
-VPN_SERVICE="${VPN_SERVICE:-ecnu-openconnect.service}"
+VPN_SERVICE="${VPN_SERVICE:-och-openconnect.service}"
 DEFAULT_HOST="${DEFAULT_HOST:-}"
 PROXY_LOCAL_HOST="${PROXY_LOCAL_HOST:-127.0.0.1}"
 PROXY_LOCAL_PORT="${PROXY_LOCAL_PORT:-7890}"
 PROXY_REMOTE_PORT="${PROXY_REMOTE_PORT:-7890}"
 
 log() {
-  echo "[ecnu-ssh] $*" >&2
+  echo "[och] $*" >&2
 }
 
 die() {
@@ -47,8 +47,9 @@ die() {
 usage() {
   cat <<EOF
 用法:
-  ${ECNU_SSH_COMMAND_NAME} [ssh 参数...]
-  ${ECNU_SSH_COMMAND_NAME} --proxy [ssh 参数...]
+  ${OCH_COMMAND_NAME} [ssh 参数...]
+  ${OCH_COMMAND_NAME} --proxy [ssh 参数...]
+  ${OCH_COMMAND_NAME} --proxy-command <host> <port>
 
 说明:
   这是一个面向 AnyConnect / OpenConnect 场景的 SSH 包装器。
@@ -58,15 +59,17 @@ usage() {
   - 若参数里已经包含目标主机，则按原样转交给 ssh
   - 若未提供目标主机，则使用 DEFAULT_HOST；若未配置 DEFAULT_HOST，则报错
   - 使用 --proxy 时，会额外添加远端端口映射：${PROXY_REMOTE_PORT} -> ${PROXY_LOCAL_HOST}:${PROXY_LOCAL_PORT}
+  - 使用 --proxy-command 时，会先确保 VPN 可达，再把 stdio 连接到目标 host:port
 
 示例:
-  ${ECNU_SSH_COMMAND_NAME} ecnu-target
-  ${ECNU_SSH_COMMAND_NAME} --proxy ecnu-target
-  ${ECNU_SSH_COMMAND_NAME} --proxy -N ecnu-target
-  ${ECNU_SSH_COMMAND_NAME} -L 8080:127.0.0.1:8080 ecnu-target
+  ${OCH_COMMAND_NAME} och-target
+  ${OCH_COMMAND_NAME} --proxy och-target
+  ${OCH_COMMAND_NAME} --proxy -N och-target
+  ${OCH_COMMAND_NAME} -L 8080:127.0.0.1:8080 och-target
+  ${OCH_COMMAND_NAME} --proxy-command %h %p
 
 环境变量:
-  WRAPPER_CONFIG_FILE ecnu-ssh 配置文件，默认 ${WRAPPER_CONFIG_FILE}
+  WRAPPER_CONFIG_FILE och 配置文件，默认 ${WRAPPER_CONFIG_FILE}
   CONNECT_SCRIPT      VPN 连接脚本路径，默认 ${CONNECT_SCRIPT}
   VPN_SERVICE         systemd 服务名，默认 ${VPN_SERVICE}
   DEFAULT_HOST        缺省 SSH 目标主机；未设置时必须显式传入目标主机
@@ -265,9 +268,30 @@ ensure_vpn() {
   die "重连后仍无法访问目标，检查日志：${CONNECT_SCRIPT} logs"
 }
 
+proxy_command() {
+  local host="${1:-}"
+  local port="${2:-}"
+
+  [[ -n "$host" ]] || die "--proxy-command 缺少 host"
+  [[ -n "$port" ]] || die "--proxy-command 缺少 port"
+  require_tool nc
+
+  RESOLVED_HOST="$host"
+  RESOLVED_PORT="$port"
+  RESOLVED_USER=""
+
+  ensure_vpn
+  exec nc "$host" "$port"
+}
+
 main() {
   require_tool ssh
   require_tool "$CONNECT_SCRIPT"
+
+  if [[ "${1:-}" == "--proxy-command" ]]; then
+    shift
+    proxy_command "$@"
+  fi
 
   strip_wrapper_args "$@"
   local -a ssh_args=("${WRAPPER_SSH_ARGS[@]+"${WRAPPER_SSH_ARGS[@]}"}")

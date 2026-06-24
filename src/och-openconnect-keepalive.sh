@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VPN_SERVICE="${VPN_SERVICE:-ecnu-openconnect.service}"
-CONFIG_FILE="${CONFIG_FILE:-$HOME/.config/ecnu-connect-campus-server.env}"
+VPN_SERVICE="${VPN_SERVICE:-och-openconnect.service}"
+CONFIG_FILE="${CONFIG_FILE:-$HOME/.config/och/och-vpn.env}"
 FAIL_THRESHOLD="${FAIL_THRESHOLD:-2}"
-STATE_DIR="${STATE_DIR:-/run/ecnu-openconnect-keepalive}"
+STATE_DIR="${STATE_DIR:-/run/och-openconnect-keepalive}"
 FAIL_COUNT_FILE="${FAIL_COUNT_FILE:-${STATE_DIR}/fail-count}"
 PROBE_HOST="${PROBE_HOST:-}"
 PING_BIN="${PING_BIN:-ping}"
@@ -37,7 +37,7 @@ fi
 PROBE_HOST="${PROBE_HOST:-${TARGET_HOST:-}}"
 
 log() {
-  echo "[ecnu-openconnect-keepalive] $*"
+  echo "[och-openconnect-keepalive] $*"
 }
 
 require_cmd() {

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 PATH="/sbin:/usr/sbin:$PATH"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 : "${VPN_HOST:=}"
 : "${VPN_USER:=}"
@@ -11,9 +12,9 @@ PATH="/sbin:/usr/sbin:$PATH"
 : "${TARGET_PORT:=22}"
 : "${TARGET_SSH_USER:=${USER:-root}}"
 : "${OPENCONNECT_BIN:=$(command -v openconnect 2>/dev/null || printf 'openconnect')}"
-: "${PID_FILE:=/tmp/ecnu-openconnect-${USER}.pid}"
-: "${LOG_FILE:=/tmp/ecnu-openconnect-${USER}.log}"
-: "${CONFIG_FILE:=$HOME/.config/ecnu-connect-campus-server.env}"
+: "${PID_FILE:=/tmp/och-openconnect-${USER}.pid}"
+: "${LOG_FILE:=/tmp/och-openconnect-${USER}.log}"
+: "${CONFIG_FILE:=$HOME/.config/och/och-vpn.env}"
 : "${OS_NAME:=$(uname -s)}"
 
 load_env_file() {
@@ -43,7 +44,7 @@ fi
 
 usage() {
   cat <<EOF
-AnyConnect / OpenConnect 单机连接脚本
+OCH AnyConnect / OpenConnect 单机连接脚本
 
 用法:
   $(basename "$0") <command>
@@ -68,6 +69,7 @@ AnyConnect / OpenConnect 单机连接脚本
   TARGET_SSH_USER  SSH 用户，默认 ${TARGET_SSH_USER}
   OPENCONNECT_BIN  openconnect 可执行文件，默认 ${OPENCONNECT_BIN}
   VPN_SCRIPT_CMD   可选；覆盖 OpenConnect vpnc-script 命令
+  MACOS_EXTRA_ROUTES macOS 上额外走 VPN 的 CIDR 列表
   VPN_PASSWORD     可选；未设置时会静默提示输入
   CONFIG_FILE      可选；默认 ${CONFIG_FILE}，可放 VPN_PASSWORD 等私密配置
   PID_FILE         PID 文件路径，默认 ${PID_FILE}
@@ -104,6 +106,14 @@ require_value() {
   [[ -n "${!var_name:-}" ]] || error "$hint"
 }
 
+sudo_cmd() {
+  if [[ -n "${SUDO_ASKPASS:-}" ]]; then
+    sudo -A "$@"
+  else
+    sudo "$@"
+  fi
+}
+
 is_macos() {
   [[ "$OS_NAME" == "Darwin" ]]
 }
@@ -111,6 +121,11 @@ is_macos() {
 resolve_vpn_script() {
   if [[ -n "${VPN_SCRIPT_CMD:-}" ]]; then
     printf '%s' "$VPN_SCRIPT_CMD"
+    return 0
+  fi
+
+  if is_macos && [[ -n "${MACOS_EXTRA_ROUTES:-}" ]]; then
+    printf '%s' "$SCRIPT_DIR/macos-vpnc-route-wrapper.sh"
     return 0
   fi
 
@@ -129,7 +144,7 @@ resolve_vpn_script() {
   fi
 
   if is_macos; then
-    error '已设置 VPN_ROUTES，但未找到 vpn-slice/uvx；macOS 无新增依赖模式请取消 VPN_ROUTES，改用 OpenConnect 默认 vpnc-script'
+    error '已设置 VPN_ROUTES，但未找到 vpn-slice/uvx；macOS 无新增依赖模式请取消 VPN_ROUTES，或改用 MACOS_EXTRA_ROUTES'
   fi
 
   error '缺少分流脚本：请安装 vpn-slice，或确保 uvx 可用'
@@ -300,7 +315,7 @@ connect_vpn() {
   fi
 
   # shellcheck disable=SC2024
-  printf '%s\n' "$vpn_password" | sudo "$OPENCONNECT_BIN" "${openconnect_args[@]}" \
+  printf '%s\n' "$vpn_password" | sudo_cmd "$OPENCONNECT_BIN" "${openconnect_args[@]}" \
     >>"$LOG_FILE" 2>&1 || {
       unset vpn_password VPN_PASSWORD vpn_script VPN_SCRIPT_CMD
       echo "VPN 连接失败，日志见: $LOG_FILE" >&2
@@ -339,15 +354,15 @@ disconnect_vpn() {
   local pid
   pid=$(<"$PID_FILE")
 
-  if sudo kill -0 "$pid" >/dev/null 2>&1; then
-    sudo kill "$pid"
+  if sudo_cmd kill -0 "$pid" >/dev/null 2>&1; then
+    sudo_cmd kill "$pid"
     sleep 1
     echo 'VPN 已断开'
   else
     echo '发现陈旧 PID 文件，已清理'
   fi
 
-  sudo rm -f "$PID_FILE"
+  sudo_cmd rm -f "$PID_FILE"
 }
 
 verify_connection() {
