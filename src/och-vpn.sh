@@ -470,4 +470,8 @@ main() {
   esac
 }
 
-main "$@"
+# Only dispatch when executed directly, so tests can source this file and call
+# individual functions (e.g. route parsing) without running a command.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

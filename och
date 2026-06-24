@@ -18,7 +18,8 @@ if [[ -z "${PROJECT_ENV_FILE:-}" && -r "$SCRIPT_DIR/.env" ]]; then
   export PROJECT_ENV_FILE="$SCRIPT_DIR/.env"
 fi
 
-export OCH_COMMAND_NAME="$(basename "$0")"
+OCH_COMMAND_NAME="$(basename "$0")"
+export OCH_COMMAND_NAME
 
 if [[ -z "${CONNECT_SCRIPT:-}" ]]; then
   export CONNECT_SCRIPT="$OCH_LIBEXEC_DIR/och-vpn.sh"

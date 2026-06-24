@@ -5,15 +5,13 @@
 Run the local checks:
 
 ```bash
-bash -n och
-bash -n src/och.sh
-bash -n src/och-vpn.sh
-bash -n src/och-openconnect-keepalive.sh
-bash -n src/macos-vpnc-route-wrapper.sh
-bash -n src/och-sudo-askpass.sh
-bash -n install.sh
-shellcheck och src/och.sh src/och-vpn.sh src/och-openconnect-keepalive.sh src/macos-vpnc-route-wrapper.sh src/och-sudo-askpass.sh install.sh
+make check            # macOS：含 swift build
+make check-portable   # Linux/WSL：不依赖 Swift 工具链
 ```
+
+Both run shell syntax checks, `shellcheck`, and the smoke tests over `och`,
+`src/och.sh`, `src/och-vpn.sh`, `src/macos-vpnc-route-wrapper.sh`,
+`src/och-sudo-askpass.sh`, and `install.sh`.
 
 ## Security Rules
 

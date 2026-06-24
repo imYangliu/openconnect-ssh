@@ -3,7 +3,20 @@ set -euo pipefail
 
 PATH="/sbin:/usr/sbin:$PATH"
 
-: "${VPNC_SCRIPT_BASE:=/opt/homebrew/etc/vpnc/vpnc-script}"
+# Detect the Homebrew prefix: /opt/homebrew on Apple Silicon, /usr/local on Intel.
+default_vpnc_script() {
+  local prefix
+  for prefix in /opt/homebrew /usr/local; do
+    if [[ -x "$prefix/etc/vpnc/vpnc-script" ]]; then
+      printf '%s/etc/vpnc/vpnc-script' "$prefix"
+      return 0
+    fi
+  done
+  # Fall back to the Apple Silicon path; run_base_script reports if it is missing.
+  printf '/opt/homebrew/etc/vpnc/vpnc-script'
+}
+
+: "${VPNC_SCRIPT_BASE:=$(default_vpnc_script)}"
 : "${MACOS_EXTRA_ROUTES:=}"
 : "${OCH_ROUTE_DRY_RUN:=0}"
 
@@ -53,16 +66,24 @@ apply_extra_routes() {
   done
 }
 
-case "${reason:-}" in
-  connect|reconnect)
-    run_base_script "$@"
-    apply_extra_routes add
-    ;;
-  disconnect)
-    apply_extra_routes delete
-    run_base_script "$@"
-    ;;
-  *)
-    run_base_script "$@"
-    ;;
-esac
+main() {
+  case "${reason:-}" in
+    connect|reconnect)
+      run_base_script "$@"
+      apply_extra_routes add
+      ;;
+    disconnect)
+      apply_extra_routes delete
+      run_base_script "$@"
+      ;;
+    *)
+      run_base_script "$@"
+      ;;
+  esac
+}
+
+# Only run when executed directly, so tests can source this file and call
+# default_vpnc_script without invoking the base vpnc-script.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

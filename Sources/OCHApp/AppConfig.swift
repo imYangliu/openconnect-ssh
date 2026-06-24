@@ -1,5 +1,18 @@
 import Foundation
 
+/// Resolves the Homebrew prefix: `/opt/homebrew` on Apple Silicon, `/usr/local`
+/// on Intel. Falls back to `/opt/homebrew` when neither `och` binary is found,
+/// so the defaults stay stable and remain overridable via gui.env.
+enum BrewPrefix {
+    static let path: String = {
+        for prefix in ["/opt/homebrew", "/usr/local"] where
+            FileManager.default.isExecutableFile(atPath: "\(prefix)/bin/och") {
+            return prefix
+        }
+        return "/opt/homebrew"
+    }()
+}
+
 struct AppConfig: Equatable {
     var vpnHost = ""
     var vpnUser = ""
@@ -12,9 +25,9 @@ struct AppConfig: Equatable {
     var proxyLocalHost = "127.0.0.1"
     var proxyLocalPort = "7890"
     var proxyRemotePort = "7890"
-    var ochPath = "/opt/homebrew/bin/och"
-    var ochVpnPath = "/opt/homebrew/bin/och-vpn"
-    var askpassPath = "/opt/homebrew/libexec/och/och-sudo-askpass.sh"
+    var ochPath = "\(BrewPrefix.path)/bin/och"
+    var ochVpnPath = "\(BrewPrefix.path)/bin/och-vpn"
+    var askpassPath = "\(BrewPrefix.path)/libexec/och/och-sudo-askpass.sh"
 
     var extraRoutes: [String] {
         extraRoutesText

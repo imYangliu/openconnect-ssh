@@ -5,6 +5,13 @@ struct CommandResult {
     let output: String
 }
 
+/// Holds output collected on a background queue. Access is serialized by the
+/// DispatchGroup join below (write happens-before the read), so the unchecked
+/// Sendable conformance is safe.
+private final class OutputBox: @unchecked Sendable {
+    var data = Data()
+}
+
 enum CommandRunner {
     static func run(
         executable: String,
@@ -24,18 +31,35 @@ enum CommandRunner {
         process.standardOutput = outputPipe
         process.standardError = outputPipe
 
-        if let stdin {
-            let inputPipe = Pipe()
+        let inputPipe: Pipe?
+        if stdin != nil {
+            inputPipe = Pipe()
             process.standardInput = inputPipe
-            try process.run()
-            inputPipe.fileHandleForWriting.write(Data(stdin.utf8))
-            try inputPipe.fileHandleForWriting.close()
         } else {
-            try process.run()
+            inputPipe = nil
         }
 
-        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        // Drain stdout/stderr on a background queue so a child that fills the
+        // pipe buffer (~64KB) cannot deadlock against us writing stdin or
+        // waiting for exit. Collect the data, then join below.
+        let box = OutputBox()
+        let readQueue = DispatchQueue(label: "och.command-runner.read")
+        let readGroup = DispatchGroup()
+        readGroup.enter()
+        readQueue.async {
+            box.data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            readGroup.leave()
+        }
+
+        try process.run()
+
+        if let stdin, let inputPipe {
+            inputPipe.fileHandleForWriting.write(Data(stdin.utf8))
+            try inputPipe.fileHandleForWriting.close()
+        }
+
         process.waitUntilExit()
-        return CommandResult(status: process.terminationStatus, output: String(data: data, encoding: .utf8) ?? "")
+        readGroup.wait()
+        return CommandResult(status: process.terminationStatus, output: String(data: box.data, encoding: .utf8) ?? "")
     }
 }

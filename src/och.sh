@@ -29,7 +29,6 @@ fi
 
 DEFAULT_CONNECT_SCRIPT="$(command -v och-vpn 2>/dev/null || printf '/usr/local/bin/och-vpn')"
 CONNECT_SCRIPT="${CONNECT_SCRIPT:-$DEFAULT_CONNECT_SCRIPT}"
-VPN_SERVICE="${VPN_SERVICE:-och-openconnect.service}"
 DEFAULT_HOST="${DEFAULT_HOST:-}"
 PROXY_LOCAL_HOST="${PROXY_LOCAL_HOST:-127.0.0.1}"
 PROXY_LOCAL_PORT="${PROXY_LOCAL_PORT:-7890}"
@@ -71,7 +70,6 @@ usage() {
 环境变量:
   WRAPPER_CONFIG_FILE och 配置文件，默认 ${WRAPPER_CONFIG_FILE}
   CONNECT_SCRIPT      VPN 连接脚本路径，默认 ${CONNECT_SCRIPT}
-  VPN_SERVICE         systemd 服务名，默认 ${VPN_SERVICE}
   DEFAULT_HOST        缺省 SSH 目标主机；未设置时必须显式传入目标主机
   PROXY_LOCAL_HOST    --proxy 映射到的本地地址，默认 ${PROXY_LOCAL_HOST}
   PROXY_LOCAL_PORT    --proxy 映射到的本地端口，默认 ${PROXY_LOCAL_PORT}
@@ -233,31 +231,13 @@ verify_vpn() {
   run_connect_script verify >/dev/null 2>&1
 }
 
-restart_vpn_service() {
-  if ! command -v systemctl >/dev/null 2>&1; then
-    return 1
-  fi
-
-  if ! systemctl cat "$VPN_SERVICE" >/dev/null 2>&1; then
-    return 1
-  fi
-
-  log "VPN 不可达，正在重启 ${VPN_SERVICE}"
-  systemctl restart "$VPN_SERVICE"
-}
-
 ensure_vpn() {
   if verify_vpn; then
     log "VPN 连通性正常"
     return 0
   fi
 
-  if restart_vpn_service && verify_vpn; then
-    log "VPN 已恢复"
-    return 0
-  fi
-
-  log "改为直接调用 VPN 连接脚本"
+  log "VPN 不可达，正在尝试连接"
   run_connect_script connect
 
   if verify_vpn; then
