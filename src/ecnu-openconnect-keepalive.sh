@@ -11,9 +11,27 @@ PING_BIN="${PING_BIN:-ping}"
 PING_COUNT="${PING_COUNT:-1}"
 PING_TIMEOUT="${PING_TIMEOUT:-1}"
 
+load_env_file() {
+  local env_file="$1"
+
+  [[ -r "$env_file" ]] || return 0
+  set -a
+  # shellcheck disable=SC1090
+  source "$env_file"
+  set +a
+}
+
 if [[ -r "$CONFIG_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$CONFIG_FILE"
+fi
+
+if [[ -n "${ENV_FILE:-}" ]]; then
+  load_env_file "$ENV_FILE"
+elif [[ -r .env ]]; then
+  load_env_file .env
+elif [[ -n "${PROJECT_ENV_FILE:-}" ]]; then
+  load_env_file "$PROJECT_ENV_FILE"
 fi
 
 PROBE_HOST="${PROBE_HOST:-${TARGET_HOST:-}}"

@@ -2,13 +2,33 @@
 set -euo pipefail
 
 WRAPPER_CONFIG_FILE="${WRAPPER_CONFIG_FILE:-$HOME/.config/ecnu-ssh.env}"
+ECNU_SSH_COMMAND_NAME="${ECNU_SSH_COMMAND_NAME:-$(basename "$0")}"
+
+load_env_file() {
+  local env_file="$1"
+
+  [[ -r "$env_file" ]] || return 0
+  set -a
+  # shellcheck disable=SC1090
+  source "$env_file"
+  set +a
+}
 
 if [[ -r "$WRAPPER_CONFIG_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$WRAPPER_CONFIG_FILE"
 fi
 
-CONNECT_SCRIPT="${CONNECT_SCRIPT:-/usr/local/bin/connect-campus-server.sh}"
+if [[ -n "${ENV_FILE:-}" ]]; then
+  load_env_file "$ENV_FILE"
+elif [[ -r .env ]]; then
+  load_env_file .env
+elif [[ -n "${PROJECT_ENV_FILE:-}" ]]; then
+  load_env_file "$PROJECT_ENV_FILE"
+fi
+
+DEFAULT_CONNECT_SCRIPT="$(command -v connect-campus-server.sh 2>/dev/null || printf '/usr/local/bin/connect-campus-server.sh')"
+CONNECT_SCRIPT="${CONNECT_SCRIPT:-$DEFAULT_CONNECT_SCRIPT}"
 VPN_SERVICE="${VPN_SERVICE:-ecnu-openconnect.service}"
 DEFAULT_HOST="${DEFAULT_HOST:-}"
 PROXY_LOCAL_HOST="${PROXY_LOCAL_HOST:-127.0.0.1}"
@@ -27,8 +47,8 @@ die() {
 usage() {
   cat <<EOF
 用法:
-  $(basename "$0") [ssh 参数...]
-  $(basename "$0") --proxy [ssh 参数...]
+  ${ECNU_SSH_COMMAND_NAME} [ssh 参数...]
+  ${ECNU_SSH_COMMAND_NAME} --proxy [ssh 参数...]
 
 说明:
   这是一个面向 AnyConnect / OpenConnect 场景的 SSH 包装器。
@@ -40,10 +60,10 @@ usage() {
   - 使用 --proxy 时，会额外添加远端端口映射：${PROXY_REMOTE_PORT} -> ${PROXY_LOCAL_HOST}:${PROXY_LOCAL_PORT}
 
 示例:
-  $(basename "$0") ecnu-target
-  $(basename "$0") --proxy ecnu-target
-  $(basename "$0") --proxy -N ecnu-target
-  $(basename "$0") -L 8080:127.0.0.1:8080 ecnu-target
+  ${ECNU_SSH_COMMAND_NAME} ecnu-target
+  ${ECNU_SSH_COMMAND_NAME} --proxy ecnu-target
+  ${ECNU_SSH_COMMAND_NAME} --proxy -N ecnu-target
+  ${ECNU_SSH_COMMAND_NAME} -L 8080:127.0.0.1:8080 ecnu-target
 
 环境变量:
   WRAPPER_CONFIG_FILE ecnu-ssh 配置文件，默认 ${WRAPPER_CONFIG_FILE}
@@ -250,7 +270,7 @@ main() {
   require_tool "$CONNECT_SCRIPT"
 
   strip_wrapper_args "$@"
-  local -a ssh_args=("${WRAPPER_SSH_ARGS[@]}")
+  local -a ssh_args=("${WRAPPER_SSH_ARGS[@]+"${WRAPPER_SSH_ARGS[@]}"}")
   local destination=""
   local proxy_mode="${WRAPPER_PROXY_MODE}"
 
@@ -263,7 +283,7 @@ main() {
     esac
   fi
 
-  if ! destination=$(find_destination "${ssh_args[@]}"); then
+  if ! destination=$(find_destination "${ssh_args[@]+"${ssh_args[@]}"}"); then
     if [[ -z "$DEFAULT_HOST" ]]; then
       die "未提供目标主机，请传入 SSH host，或在 ${WRAPPER_CONFIG_FILE} 中设置 DEFAULT_HOST"
     fi

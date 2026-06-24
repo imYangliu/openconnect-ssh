@@ -5,11 +5,12 @@
 Run the local checks:
 
 ```bash
-bash -n bin/ecnu-ssh
-bash -n bin/connect-campus-server.sh
-bash -n bin/ecnu-openconnect-keepalive.sh
+bash -n ecnu-ssh
+bash -n src/ecnu-ssh.sh
+bash -n src/connect-campus-server.sh
+bash -n src/ecnu-openconnect-keepalive.sh
 bash -n install.sh
-shellcheck bin/ecnu-ssh bin/connect-campus-server.sh bin/ecnu-openconnect-keepalive.sh install.sh
+shellcheck ecnu-ssh src/ecnu-ssh.sh src/connect-campus-server.sh src/ecnu-openconnect-keepalive.sh install.sh
 ```
 
 ## Security Rules

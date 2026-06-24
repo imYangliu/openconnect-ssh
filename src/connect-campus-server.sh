@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PATH="/sbin:/usr/sbin:$PATH"
+
 : "${VPN_HOST:=}"
 : "${VPN_USER:=}"
 : "${VPN_AUTHGROUP:=}"
@@ -12,23 +14,42 @@ set -euo pipefail
 : "${PID_FILE:=/tmp/ecnu-openconnect-${USER}.pid}"
 : "${LOG_FILE:=/tmp/ecnu-openconnect-${USER}.log}"
 : "${CONFIG_FILE:=$HOME/.config/ecnu-connect-campus-server.env}"
+: "${OS_NAME:=$(uname -s)}"
+
+load_env_file() {
+  local env_file="$1"
+
+  [[ -r "$env_file" ]] || return 0
+  set -a
+  # shellcheck disable=SC1090
+  source "$env_file"
+  set +a
+}
 
 if [[ -r "$CONFIG_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$CONFIG_FILE"
 fi
 
+if [[ -n "${ENV_FILE:-}" ]]; then
+  load_env_file "$ENV_FILE"
+elif [[ -r .env ]]; then
+  load_env_file .env
+elif [[ -n "${PROJECT_ENV_FILE:-}" ]]; then
+  load_env_file "$PROJECT_ENV_FILE"
+fi
+
 : "${VPN_ROUTES:=${TARGET_CIDR:-}}"
 
 usage() {
   cat <<EOF
-AnyConnect / OpenConnect 单机分流脚本
+AnyConnect / OpenConnect 单机连接脚本
 
 用法:
   $(basename "$0") <command>
 
 命令:
-  connect      连接 VPN，并让指定网段走目标网络
+  connect      连接 VPN
   disconnect   断开 VPN
   status       显示当前连接状态
   verify       验证目标路由和 TARGET_HOST:TARGET_PORT 连通性
@@ -41,12 +62,12 @@ AnyConnect / OpenConnect 单机分流脚本
   VPN_USER         VPN 用户名；必须配置
   VPN_AUTHGROUP    可选认证组；部分网关需要
   TARGET_HOST      目标主机；verify / ssh 需要
-  VPN_ROUTES       分流网段列表；connect 需要
+  VPN_ROUTES       分流网段列表；Linux 上使用 vpn-slice/uvx 时需要
   TARGET_CIDR      兼容旧变量；未设置 VPN_ROUTES 时也可用
   TARGET_PORT      目标端口，默认 ${TARGET_PORT}
   TARGET_SSH_USER  SSH 用户，默认 ${TARGET_SSH_USER}
   OPENCONNECT_BIN  openconnect 可执行文件，默认 ${OPENCONNECT_BIN}
-  VPN_SCRIPT_CMD   可选；覆盖分流脚本命令，默认自动使用 vpn-slice 或 uvx
+  VPN_SCRIPT_CMD   可选；覆盖 OpenConnect vpnc-script 命令
   VPN_PASSWORD     可选；未设置时会静默提示输入
   CONFIG_FILE      可选；默认 ${CONFIG_FILE}，可放 VPN_PASSWORD 等私密配置
   PID_FILE         PID 文件路径，默认 ${PID_FILE}
@@ -83,9 +104,17 @@ require_value() {
   [[ -n "${!var_name:-}" ]] || error "$hint"
 }
 
+is_macos() {
+  [[ "$OS_NAME" == "Darwin" ]]
+}
+
 resolve_vpn_script() {
   if [[ -n "${VPN_SCRIPT_CMD:-}" ]]; then
     printf '%s' "$VPN_SCRIPT_CMD"
+    return 0
+  fi
+
+  if is_macos && [[ -z "$VPN_ROUTES" ]]; then
     return 0
   fi
 
@@ -97,6 +126,10 @@ resolve_vpn_script() {
   if command -v uvx >/dev/null 2>&1; then
     printf '%s --from vpn-slice vpn-slice %s' "$(command -v uvx)" "$VPN_ROUTES"
     return 0
+  fi
+
+  if is_macos; then
+    error '已设置 VPN_ROUTES，但未找到 vpn-slice/uvx；macOS 无新增依赖模式请取消 VPN_ROUTES，改用 OpenConnect 默认 vpnc-script'
   fi
 
   error '缺少分流脚本：请安装 vpn-slice，或确保 uvx 可用'
@@ -123,19 +156,74 @@ is_connected() {
   ps -p "$pid" -o comm= 2>/dev/null | grep -qx 'openconnect'
 }
 
+default_route_line() {
+  if is_macos; then
+    route -n get default 2>/dev/null | awk -F: '
+      $1 ~ /gateway|interface/ {
+        key=$1
+        value=$2
+        gsub(/^[ \t]+|[ \t]+$/, "", key)
+        gsub(/^[ \t]+|[ \t]+$/, "", value)
+        printf "%s=%s ", key, value
+      }
+      END { print "" }
+    '
+    return 0
+  fi
+
+  ip route show default | sed -n '1p'
+}
+
+route_line_for_host() {
+  local host="$1"
+
+  if is_macos; then
+    route -n get "$host" 2>/dev/null | awk -F: '
+      $1 ~ /route to|destination|gateway|interface/ {
+        key=$1
+        value=$2
+        gsub(/^[ \t]+|[ \t]+$/, "", key)
+        gsub(/^[ \t]+|[ \t]+$/, "", value)
+        printf "%s=%s ", key, value
+      }
+      END { print "" }
+    '
+    return 0
+  fi
+
+  ip route get "$host" | sed -n '1p'
+}
+
+default_route_iface() {
+  if is_macos; then
+    route -n get default 2>/dev/null | awk '$1 == "interface:" {print $2; exit}'
+    return 0
+  fi
+
+  ip route show default | awk '/default/ {for (i=1; i<=NF; i++) if ($i == "dev") {print $(i+1); exit}}'
+}
+
+route_iface_for_host() {
+  local host="$1"
+
+  if is_macos; then
+    route -n get "$host" 2>/dev/null | awk '$1 == "interface:" {print $2; exit}'
+    return 0
+  fi
+
+  ip route get "$host" | awk '{for (i=1; i<=NF; i++) if ($i == "dev") {print $(i+1); exit}}'
+}
+
 wait_for_target_route() {
   local timeout_seconds="${1:-15}"
-  local default_iface=""
   local target_iface=""
   local attempt
 
   [[ -n "$TARGET_HOST" ]] || return 0
 
-  default_iface=$(ip route show default | awk '/default/ {for (i=1; i<=NF; i++) if ($i == "dev") {print $(i+1); exit}}')
-
   for ((attempt=0; attempt<timeout_seconds; attempt++)); do
-    target_iface=$(ip route get "$TARGET_HOST" | awk '{for (i=1; i<=NF; i++) if ($i == "dev") {print $(i+1); exit}}')
-    if [[ -n "$default_iface" && -n "$target_iface" && "$default_iface" != "$target_iface" ]]; then
+    target_iface=$(route_iface_for_host "$TARGET_HOST" || true)
+    if [[ -n "$target_iface" ]]; then
       return 0
     fi
     sleep 1
@@ -154,11 +242,11 @@ show_status() {
   fi
 
   echo "默认路由:"
-  ip route show default | sed -n '1p' || true
+  default_route_line || true
 
   if [[ -n "$TARGET_HOST" ]]; then
     echo "目标路由:"
-    ip route get "$TARGET_HOST" | sed -n '1p' || true
+    route_line_for_host "$TARGET_HOST" || true
   else
     echo '目标路由: 未配置 TARGET_HOST'
   fi
@@ -167,10 +255,17 @@ show_status() {
 connect_vpn() {
   require_tool sudo
   require_tool "$OPENCONNECT_BIN"
-  require_tool ip
+  if is_macos; then
+    require_tool route
+    require_tool nc
+  else
+    require_tool ip
+  fi
   require_value VPN_HOST "未设置 VPN_HOST，请在 ${CONFIG_FILE} 或环境变量中配置"
   require_value VPN_USER "未设置 VPN_USER，请在 ${CONFIG_FILE} 或环境变量中配置"
-  require_value VPN_ROUTES "未设置 VPN_ROUTES，请在 ${CONFIG_FILE} 或环境变量中配置"
+  if ! is_macos && [[ -z "${VPN_SCRIPT_CMD:-}" ]]; then
+    require_value VPN_ROUTES "未设置 VPN_ROUTES，请在 ${CONFIG_FILE} 或环境变量中配置"
+  fi
 
   if is_connected; then
     echo 'VPN 已连接，无需重复连接'
@@ -194,8 +289,11 @@ connect_vpn() {
     --passwd-on-stdin \
     --background \
     --pid-file="$PID_FILE" \
-    --script "$vpn_script" \
   )
+
+  if [[ -n "$vpn_script" ]]; then
+    openconnect_args+=(--script "$vpn_script")
+  fi
 
   if [[ -n "$VPN_AUTHGROUP" ]]; then
     openconnect_args+=(--authgroup="$VPN_AUTHGROUP")
@@ -253,32 +351,58 @@ disconnect_vpn() {
 }
 
 verify_connection() {
-  require_tool ip
-  require_tool timeout
+  if is_macos; then
+    require_tool route
+    require_tool nc
+  else
+    require_tool ip
+  fi
   require_value TARGET_HOST "未设置 TARGET_HOST，无法验证目标连通性"
 
   local default_iface=""
   local target_iface=""
-  default_iface=$(ip route show default | awk '/default/ {for (i=1; i<=NF; i++) if ($i == "dev") {print $(i+1); exit}}')
-  target_iface=$(ip route get "$TARGET_HOST" | awk '{for (i=1; i<=NF; i++) if ($i == "dev") {print $(i+1); exit}}')
+  default_iface=$(default_route_iface || true)
+  target_iface=$(route_iface_for_host "$TARGET_HOST" || true)
 
   echo "默认路由:"
-  ip route show default | sed -n '1p'
+  default_route_line
   echo "目标路由:"
-  ip route get "$TARGET_HOST" | sed -n '1p'
+  route_line_for_host "$TARGET_HOST"
 
   if [[ -n "$default_iface" && -n "$target_iface" && "$default_iface" != "$target_iface" ]]; then
     echo "路由检查: 目标主机走 ${target_iface}，默认流量仍走 ${default_iface}"
+  elif [[ -n "$target_iface" ]]; then
+    echo "路由检查: 目标主机走 ${target_iface}，与默认路由相同；这可能是全隧道或服务端未下发分流路由"
   else
-    echo '路由检查: 未观察到目标主机与默认路由分离，请确认 VPN 已连接且 vpn-slice 生效'
+    echo '路由检查: 未能解析目标路由，请确认 VPN 已连接'
   fi
 
-  if timeout 5 bash -lc "exec 3<>/dev/tcp/${TARGET_HOST}/${TARGET_PORT}" 2>/dev/null; then
+  if check_tcp_port "$TARGET_HOST" "$TARGET_PORT"; then
     echo "端口检查: ${TARGET_HOST}:${TARGET_PORT} 可达"
   else
     echo "端口检查: ${TARGET_HOST}:${TARGET_PORT} 不可达" >&2
     return 1
   fi
+}
+
+check_tcp_port() {
+  local host="$1"
+  local port="$2"
+
+  if is_macos && nc -G 5 -z "$host" "$port" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 5 bash -lc "exec 3<>/dev/tcp/\$1/\$2" _ "$host" "$port" 2>/dev/null
+    return $?
+  fi
+
+  if nc -G 5 -z "$host" "$port" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  nc -w 5 -z "$host" "$port" >/dev/null 2>&1
 }
 
 ssh_target() {
