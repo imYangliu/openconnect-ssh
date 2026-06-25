@@ -16,6 +16,7 @@ final class AppModel: ObservableObject {
     }
     @Published var configText = ""
     @Published var logText = ""
+    @Published var runtimeLogText = ""
     @Published var isConnectionBusy = false
     @Published var isServiceBusy = false
     @Published var includeInstalled = SSHConfigManager.mainConfigIncludesManagedFile()
@@ -35,6 +36,7 @@ final class AppModel: ObservableObject {
     @Published var advancedStatusIsError = false
 
     private var lastSyncedConfigText = ""
+    private let runtimeLogURL = URL(fileURLWithPath: "/tmp/och-openconnect-\(NSUserName()).log")
 
     init() {
         loadConfiguration()
@@ -270,6 +272,15 @@ final class AppModel: ObservableObject {
 
     func refreshStatus() {
         runVPNCommand(["status"])
+    }
+
+    func refreshRuntimeLogTail() {
+        do {
+            let raw = try String(contentsOf: runtimeLogURL, encoding: .utf8)
+            runtimeLogText = tail(raw, lines: 160)
+        } catch {
+            runtimeLogText = L10n.tr("status.runtime_log.unavailable", language: config.appLanguage, runtimeLogURL.path)
+        }
     }
 
     private func runVPNCommand(_ arguments: [String], vpnPassword: String? = nil) {
@@ -517,6 +528,11 @@ final class AppModel: ObservableObject {
             environment["VPN_PASSWORD"] = vpnPassword
         }
         return environment
+    }
+
+    private func tail(_ text: String, lines count: Int) -> String {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        return lines.suffix(count).joined(separator: "\n")
     }
 
     private func synchronizeSettingsForSave() throws {

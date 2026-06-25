@@ -42,6 +42,8 @@
 "status.connection.error" = "VPN 状态异常";
 "status.connection.unknown" = "VPN 状态未知";
 "status.connection.refresh_hint" = "点击刷新状态获取当前 VPN 和路由信息。";
+"status.auto_refresh.on" = "自动刷新开启";
+"status.runtime_log.unavailable" = "运行时日志暂不可用：%@";
 "status.service.running_command" = "正在更新 macOS 服务 %@...";
 "status.service.available" = "服务已启用并可用";
 "status.service.available_short" = "服务可用";
@@ -171,6 +173,8 @@
 "confirm.service_uninstall.message" = "这会取消注册 OCH 后台 helper。之后 debug 和 CLI-only 构建可以回退到 sudo 模式。";
 
 "label.log" = "日志";
+"label.operation_history" = "操作历史";
+"label.runtime_log" = "运行时日志";
 "tray.open_window" = "打开 OCH";
 "tray.quit" = "退出 OCH";
 

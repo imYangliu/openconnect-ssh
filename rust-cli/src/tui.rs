@@ -15,8 +15,14 @@ use std::fs;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 const INCLUDE_LINE: &str = "Include ~/.ssh/och.config";
+const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const VPN_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
+const SERVICE_REFRESH_INTERVAL: Duration = Duration::from_secs(15);
+const LOG_REFRESH_INTERVAL: Duration = Duration::from_secs(3);
+const LOGS_PANE_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pane {
@@ -33,6 +39,13 @@ enum Pane {
 enum ConfirmAction {
     UninstallService,
     OverwriteInvalidConfig,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RefreshTarget {
+    VpnStatus,
+    ServiceStatus,
+    LogTail,
 }
 
 impl Pane {
@@ -76,6 +89,10 @@ struct TuiState {
     selected_ssh: usize,
     connection_summary: String,
     service_summary: String,
+    auto_refresh: bool,
+    last_vpn_refresh: Option<Instant>,
+    last_service_refresh: Option<Instant>,
+    last_log_refresh: Option<Instant>,
     confirm: Option<ConfirmAction>,
     config_load_failed: bool,
     canceled: bool,
@@ -90,10 +107,14 @@ pub(crate) fn run() -> Result<(), String> {
     let mut terminal = TerminalSession::enter()?;
     while !state.canceled {
         terminal.draw(|frame| render(frame, &state))?;
-        let Event::Key(key) = event::read().map_err(|error| error.to_string())? else {
-            continue;
-        };
-        if let Err(error) = state.handle_key(key) {
+        if event::poll(EVENT_POLL_INTERVAL).map_err(|error| error.to_string())? {
+            let Event::Key(key) = event::read().map_err(|error| error.to_string())? else {
+                continue;
+            };
+            if let Err(error) = state.handle_key(key) {
+                state.status = error;
+            }
+        } else if let Err(error) = state.handle_tick(Instant::now()) {
             state.status = error;
         }
     }
@@ -169,6 +190,10 @@ impl TuiState {
             selected_ssh: 0,
             connection_summary: "未知".to_string(),
             service_summary: "未刷新".to_string(),
+            auto_refresh: true,
+            last_vpn_refresh: None,
+            last_service_refresh: None,
+            last_log_refresh: None,
             confirm: None,
             config_load_failed,
             canceled: false,
@@ -219,10 +244,27 @@ impl TuiState {
             KeyCode::Right | KeyCode::Tab => self.next_field(),
             KeyCode::BackTab => self.previous_field(),
             KeyCode::Enter => self.enter(),
+            KeyCode::Char('a') => {
+                self.auto_refresh = !self.auto_refresh;
+                self.status = if self.auto_refresh {
+                    "自动刷新已开启".to_string()
+                } else {
+                    "自动刷新已关闭，按 r 手动刷新当前页".to_string()
+                };
+                Ok(())
+            }
+            KeyCode::Char('r') => self.refresh_current_pane(true, Instant::now()),
             KeyCode::Backspace => self.backspace(),
             KeyCode::Char(ch) => self.push_char(ch),
             _ => Ok(()),
         }
+    }
+
+    fn handle_tick(&mut self, now: Instant) -> Result<(), String> {
+        if self.auto_refresh {
+            self.refresh_current_pane(false, now)?;
+        }
+        Ok(())
     }
 
     fn next_pane(&mut self) {
@@ -566,6 +608,19 @@ impl TuiState {
     }
 
     fn run_och<const N: usize>(&mut self, args: [&str; N]) -> Result<(), String> {
+        let (success, text) = self.run_och_capture(args)?;
+        let joined = args.join(" ");
+        let summary = if success {
+            format!("命令成功: och {joined}")
+        } else {
+            format!("命令失败: och {joined}")
+        };
+        self.apply_command_output(&joined, &text);
+        self.status = summary;
+        Ok(())
+    }
+
+    fn run_och_capture<const N: usize>(&self, args: [&str; N]) -> Result<(bool, String), String> {
         let exe = std::env::current_exe().map_err(|error| error.to_string())?;
         let output = Command::new(exe)
             .args(args)
@@ -576,18 +631,16 @@ impl TuiState {
         let mut text = String::new();
         text.push_str(&String::from_utf8_lossy(&output.stdout));
         text.push_str(&String::from_utf8_lossy(&output.stderr));
-        let summary = if output.status.success() {
-            format!("命令成功: och {}", args.join(" "))
-        } else {
-            format!("命令失败: och {} ({})", args.join(" "), output.status)
-        };
-        let joined = args.join(" ");
+        Ok((output.status.success(), text))
+    }
+
+    fn apply_command_output(&mut self, joined: &str, text: &str) {
         if joined == "vpn status" {
             self.connection_summary = summarize(&text);
         } else if joined == "service status" {
             self.service_summary = summarize(&text);
         } else if joined == "vpn logs" {
-            self.logs = text.clone();
+            self.logs = text.to_string();
         }
         if !text.trim().is_empty() {
             self.logs.push_str("\n$ och ");
@@ -596,7 +649,55 @@ impl TuiState {
             self.logs.push_str(text.trim_end());
             self.logs.push('\n');
         }
-        self.status = summary;
+    }
+
+    fn refresh_current_pane(&mut self, forced: bool, now: Instant) -> Result<(), String> {
+        let mut refreshed = Vec::new();
+        for target in refresh_targets_for_pane(self.pane) {
+            if !forced && !self.refresh_due(*target, now) {
+                continue;
+            }
+            self.refresh_target(*target, now)?;
+            refreshed.push(target.title());
+        }
+        if forced {
+            if refreshed.is_empty() {
+                self.status = format!("{} 无可刷新的运行态数据", self.pane.title());
+            } else {
+                self.status = format!("已刷新: {}", refreshed.join(", "));
+            }
+        } else if !refreshed.is_empty() {
+            self.status = format!("自动刷新: {}", refreshed.join(", "));
+        }
+        Ok(())
+    }
+
+    fn refresh_due(&self, target: RefreshTarget, now: Instant) -> bool {
+        let last = match target {
+            RefreshTarget::VpnStatus => self.last_vpn_refresh,
+            RefreshTarget::ServiceStatus => self.last_service_refresh,
+            RefreshTarget::LogTail => self.last_log_refresh,
+        };
+        last.is_none_or(|last| now.duration_since(last) >= refresh_interval(self.pane, target))
+    }
+
+    fn refresh_target(&mut self, target: RefreshTarget, now: Instant) -> Result<(), String> {
+        match target {
+            RefreshTarget::VpnStatus => {
+                let (_, text) = self.run_och_capture(["vpn", "status"])?;
+                self.apply_command_output("vpn status", &text);
+                self.last_vpn_refresh = Some(now);
+            }
+            RefreshTarget::ServiceStatus => {
+                let (_, text) = self.run_och_capture(["service", "status"])?;
+                self.apply_command_output("service status", &text);
+                self.last_service_refresh = Some(now);
+            }
+            RefreshTarget::LogTail => {
+                self.refresh_logs();
+                self.last_log_refresh = Some(now);
+            }
+        }
         Ok(())
     }
 
@@ -676,8 +777,41 @@ impl TuiState {
                 "Service: ←/→ 切操作，Enter 执行 status/install/uninstall/logs".to_string()
             }
             Pane::Config => "Config: ←/→ 切操作/编辑器，Enter 插入换行，Ctrl-S 保存".to_string(),
-            Pane::Logs => "Logs: ↑/↓ 切页面，Enter 刷新日志".to_string(),
+            Pane::Logs => "Logs: ↑/↓ 切页面，Enter 刷新日志，a 自动刷新，r 立即刷新".to_string(),
         }
+    }
+}
+
+impl RefreshTarget {
+    fn title(self) -> &'static str {
+        match self {
+            RefreshTarget::VpnStatus => "VPN",
+            RefreshTarget::ServiceStatus => "Service",
+            RefreshTarget::LogTail => "Logs",
+        }
+    }
+}
+
+fn refresh_targets_for_pane(pane: Pane) -> &'static [RefreshTarget] {
+    match pane {
+        Pane::Overview => &[
+            RefreshTarget::VpnStatus,
+            RefreshTarget::ServiceStatus,
+            RefreshTarget::LogTail,
+        ],
+        Pane::Connection => &[RefreshTarget::VpnStatus],
+        Pane::Service => &[RefreshTarget::ServiceStatus, RefreshTarget::LogTail],
+        Pane::Logs => &[RefreshTarget::VpnStatus, RefreshTarget::LogTail],
+        Pane::Ssh | Pane::Routes | Pane::Config => &[],
+    }
+}
+
+fn refresh_interval(pane: Pane, target: RefreshTarget) -> Duration {
+    match target {
+        RefreshTarget::VpnStatus => VPN_REFRESH_INTERVAL,
+        RefreshTarget::ServiceStatus => SERVICE_REFRESH_INTERVAL,
+        RefreshTarget::LogTail if pane == Pane::Logs => LOGS_PANE_REFRESH_INTERVAL,
+        RefreshTarget::LogTail => LOG_REFRESH_INTERVAL,
     }
 }
 
@@ -702,7 +836,12 @@ fn render(frame: &mut Frame, state: &TuiState) {
         Pane::Config => render_config(frame, body[1], state),
         Pane::Logs => render_logs(frame, body[1], state),
     }
-    let footer = Paragraph::new(state.status.as_str())
+    let footer_text = format!(
+        "{} | Auto: {} | r 刷新当前页 | a 开关自动刷新",
+        state.status,
+        if state.auto_refresh { "on" } else { "off" }
+    );
+    let footer = Paragraph::new(footer_text)
         .block(Block::default().borders(Borders::TOP).title("Status"))
         .wrap(Wrap { trim: true });
     frame.render_widget(footer, root[1]);
@@ -1127,6 +1266,10 @@ mod tests {
             selected_ssh: 0,
             connection_summary: "未知".to_string(),
             service_summary: "未知".to_string(),
+            auto_refresh: true,
+            last_vpn_refresh: None,
+            last_service_refresh: None,
+            last_log_refresh: None,
             confirm: None,
             config_load_failed: false,
             canceled: false,
@@ -1249,5 +1392,54 @@ mod tests {
             ),
             ["staff", "vpn-users", "contractors", "faculty"]
         );
+    }
+
+    #[test]
+    fn page_aware_refresh_targets_and_intervals_are_stable() {
+        assert_eq!(
+            refresh_targets_for_pane(Pane::Overview),
+            [
+                RefreshTarget::VpnStatus,
+                RefreshTarget::ServiceStatus,
+                RefreshTarget::LogTail
+            ]
+        );
+        assert_eq!(
+            refresh_targets_for_pane(Pane::Connection),
+            [RefreshTarget::VpnStatus]
+        );
+        assert_eq!(
+            refresh_targets_for_pane(Pane::Service),
+            [RefreshTarget::ServiceStatus, RefreshTarget::LogTail]
+        );
+        assert_eq!(
+            refresh_targets_for_pane(Pane::Logs),
+            [RefreshTarget::VpnStatus, RefreshTarget::LogTail]
+        );
+        assert!(refresh_targets_for_pane(Pane::Config).is_empty());
+        assert_eq!(
+            refresh_interval(Pane::Logs, RefreshTarget::LogTail),
+            LOGS_PANE_REFRESH_INTERVAL
+        );
+        assert_eq!(
+            refresh_interval(Pane::Overview, RefreshTarget::LogTail),
+            LOG_REFRESH_INTERVAL
+        );
+    }
+
+    #[test]
+    fn auto_refresh_toggle_updates_footer() {
+        let mut state = state_for_test();
+        state
+            .handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE))
+            .unwrap();
+        assert!(!state.auto_refresh);
+
+        let backend = TestBackend::new(100, 28);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(frame, &state)).unwrap();
+        let text = format!("{:?}", terminal.backend().buffer());
+        assert!(text.contains("Auto: off"));
+        assert!(text.contains("r 刷新当前页"));
     }
 }

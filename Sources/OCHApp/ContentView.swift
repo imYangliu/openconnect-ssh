@@ -3,6 +3,9 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject var model: AppModel
     @State private var selectedPane: AppPane = .overview
+    @State private var lastAutoVPNRefresh = Date.distantPast
+    @State private var lastAutoServiceRefresh = Date.distantPast
+    @State private var lastAutoRuntimeLogRefresh = Date.distantPast
     @State private var confirmingDeleteSavedPassword = false
     @State private var confirmingReloadConfiguration = false
     @State private var confirmingSyncTOML = false
@@ -33,6 +36,10 @@ struct ContentView: View {
         }
         .onAppear {
             model.refreshServiceStatus(silent: true)
+            model.refreshRuntimeLogTail()
+        }
+        .onReceive(Self.autoRefreshTimer) { now in
+            autoRefresh(now: now)
         }
         .sheet(isPresented: $model.showingSetupWizard) {
             SetupWizardView(model: model)
@@ -82,6 +89,29 @@ struct ContentView: View {
 
     private func tr(_ key: String) -> String {
         L10n.tr(key, language: model.config.appLanguage)
+    }
+
+    private static let autoRefreshTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    private func autoRefresh(now: Date) {
+        guard !model.isBusy else {
+            return
+        }
+        if selectedPane.refreshesRuntimeLog,
+           now.timeIntervalSince(lastAutoRuntimeLogRefresh) >= selectedPane.runtimeLogRefreshInterval {
+            model.refreshRuntimeLogTail()
+            lastAutoRuntimeLogRefresh = now
+        }
+        if selectedPane.refreshesVPNStatus,
+           now.timeIntervalSince(lastAutoVPNRefresh) >= 5 {
+            model.refreshStatus()
+            lastAutoVPNRefresh = now
+        }
+        if selectedPane.refreshesServiceStatus,
+           now.timeIntervalSince(lastAutoServiceRefresh) >= 15 {
+            model.refreshServiceStatus(silent: true)
+            lastAutoServiceRefresh = now
+        }
     }
 
     private var sidebar: some View {
@@ -779,9 +809,25 @@ struct ContentView: View {
                     ProgressView()
                         .controlSize(.small)
                 }
+                Text(verbatim: tr("status.auto_refresh.on"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
-            ReadOnlyTextBox(text: model.logText, accessibilityLabel: tr("label.log"))
+            HSplitView {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(verbatim: tr("label.operation_history"))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    ReadOnlyTextBox(text: model.logText, accessibilityLabel: tr("label.operation_history"))
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(verbatim: tr("label.runtime_log"))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    ReadOnlyTextBox(text: model.runtimeLogText, accessibilityLabel: tr("label.runtime_log"))
+                }
+            }
         }
         .padding(22)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -885,6 +931,37 @@ private enum AppPane: CaseIterable, Identifiable {
         case .logs:
             return "list.bullet.rectangle"
         }
+    }
+
+    var refreshesVPNStatus: Bool {
+        switch self {
+        case .overview, .connection, .logs:
+            return true
+        case .ssh, .routes, .service, .advanced, .config:
+            return false
+        }
+    }
+
+    var refreshesServiceStatus: Bool {
+        switch self {
+        case .overview, .service:
+            return true
+        case .connection, .ssh, .routes, .advanced, .config, .logs:
+            return false
+        }
+    }
+
+    var refreshesRuntimeLog: Bool {
+        switch self {
+        case .overview, .service, .logs:
+            return true
+        case .connection, .ssh, .routes, .advanced, .config:
+            return false
+        }
+    }
+
+    var runtimeLogRefreshInterval: TimeInterval {
+        self == .logs ? 1 : 3
     }
 }
 

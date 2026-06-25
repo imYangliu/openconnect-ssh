@@ -548,6 +548,14 @@ assert_not_contains "$ROOT_DIR/Sources/OCHApp/AppModel.swift" 'helper_path_fallb
   "GUI should not log configured-helper fallback messages"
 assert_contains "$ROOT_DIR/Sources/OCHApp/AppModel.swift" '"VPN_PASSWORD"' \
   "GUI connect should pass the current password through VPN_PASSWORD"
+assert_contains "$ROOT_DIR/Sources/OCHApp/AppModel.swift" 'runtimeLogText' \
+  "GUI should keep auto-refreshed runtime logs separate from operation history"
+assert_not_contains "$ROOT_DIR/Sources/OCHApp/AppModel.swift" 'func refreshRuntimeLogTail[^{]*\{[^}]*append\(' \
+  "GUI runtime log auto-refresh should not append to operation history"
+assert_contains "$ROOT_DIR/Sources/OCHApp/ContentView.swift" 'model\.refreshStatus\(\)' \
+  "GUI should keep manual status refresh actions"
+assert_contains "$ROOT_DIR/Sources/OCHApp/ContentView.swift" 'onReceive\(Self\.autoRefreshTimer\)' \
+  "GUI should install a page-aware auto-refresh timer"
 assert_not_contains "$ROOT_DIR/Sources/OCHApp/HelperPaths.swift" 'configuredPath|repositoryCandidates|homebrewRelativePath' \
   "GUI helper resolver should ignore configured, repository, and Homebrew paths"
 assert_contains "$ROOT_DIR/Sources/OCHApp/HelperPaths.swift" 'Contents/Resources/' \
@@ -577,6 +585,8 @@ for strings_file in \
     "$strings_file should localize error.toml.invalid_line"
   assert_contains "$strings_file" '"error\.toml\.paths_key"' \
     "$strings_file should localize error.toml.paths_key"
+  assert_contains "$strings_file" '"status\.auto_refresh\.on"' \
+    "$strings_file should localize status.auto_refresh.on"
 
   if command -v plutil >/dev/null 2>&1; then
     plutil -lint "$strings_file" >/dev/null

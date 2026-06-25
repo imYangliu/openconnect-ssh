@@ -42,6 +42,8 @@
 "status.connection.error" = "VPN status error";
 "status.connection.unknown" = "VPN status unknown";
 "status.connection.refresh_hint" = "Refresh status to read the current VPN and route state.";
+"status.auto_refresh.on" = "Auto-refresh on";
+"status.runtime_log.unavailable" = "Runtime log not available yet: %@";
 "status.service.running_command" = "Updating macOS service %@...";
 "status.service.available" = "Service enabled and reachable";
 "status.service.available_short" = "Service ready";
@@ -171,6 +173,8 @@
 "confirm.service_uninstall.message" = "This unregisters the OCH background helper. Debug and CLI-only builds may fall back to sudo mode afterward.";
 
 "label.log" = "Log";
+"label.operation_history" = "Operation History";
+"label.runtime_log" = "Runtime Log";
 "tray.open_window" = "Open OCH";
 "tray.quit" = "Quit OCH";
 
