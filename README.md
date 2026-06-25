@@ -61,6 +61,14 @@ GUI 会保存统一配置到 `~/.config/och/config.toml`。至少需要填好 VP
 
 `.env` 只作为可选覆盖文件使用；GUI 不会读取、写入或清理它。
 
+也可以直接运行交互式引导：
+
+```bash
+./och setup
+```
+
+引导会询问 VPN 网关、用户、密码、认证组、SSH 主机和路由 CIDR。macOS 上 VPN 密码会写入 Keychain；认证组会先 best-effort 探测，探测不到时可以手填或留空。
+
 macOS 默认使用 OpenConnect 自带的 `vpnc-script`，通常不需要 `VPN_ROUTES`。如果只想额外让某些网段走 VPN，配置 `MACOS_EXTRA_ROUTES`：
 
 ```bash
@@ -75,6 +83,8 @@ make run-gui
 ```
 
 GUI 会读写 `~/.config/och/config.toml`。CLI 脚本也会读取这份 TOML 配置；VPN 密码保存到 macOS Keychain 的 `och` service 下，不会写入配置文件。
+
+如果当前配置缺少关键字段，GUI 会打开首次引导；也可以随时点击“引导设置”重新走一遍配置。
 
 ### 3. 运行 CLI
 

@@ -37,7 +37,12 @@ make run-gui
 - VPN：网关、用户、认证组和 VPN 密码。
 - SSH：托管 Host 名称、真实 HostName、SSH 用户和端口。
 - 路由与代理：额外 VPN CIDR 路由，以及 `och --proxy` 使用的反向端口映射。
-- 高级：`och`、`och-vpn` 和 `askpass` 路径。
+- 高级：语言、重新加载配置、删除已保存的 Keychain 密码。
+
+首次打开时，如果关键配置缺失，GUI 会弹出两步引导：
+
+1. 填写 VPN 网关、用户和密码，并可探测/选择认证组。探测不到认证组时，可以手动填写或留空。
+2. 选择已有 `~/.ssh/config` 中的 SSH Host，或手动输入目标主机。选择已有 Host 时，OCH 默认生成 `och-<原 Host>` 作为托管 Host，路由 CIDR 默认是目标 IPv4 的 `/32`，保存前可以改成更大的网段。
 
 点击“保存”后，GUI 会写入：
 
@@ -45,7 +50,7 @@ make run-gui
 - `~/.ssh/och.config`：托管 SSH Host。
 - Keychain：VPN 密码，不写入配置文件。
 
-`och` 和 `och-vpn` 也会读取这份 TOML 配置，所以 GUI 保存后可以直接配合 CLI 使用。
+`och` 和 `och-vpn` 也会读取这份 TOML 配置，所以 GUI 保存后可以直接配合 CLI 使用。GUI 自身始终使用 App bundle 内置的 `och`、`och-vpn` 和 `askpass` helper，不读取旧配置里的 helper 路径。
 
 点击“安装 Include”后，GUI 会确保 `~/.ssh/config` 包含：
 
@@ -64,6 +69,21 @@ ssh och-target
 ## CLI-only 用法
 
 如果不使用 GUI，也使用同一份 TOML 配置。
+
+推荐先运行引导：
+
+```bash
+och setup
+```
+
+引导会：
+
+- 询问 VPN 网关、用户、密码和认证组。
+- best-effort 调用 `openconnect --authenticate` 探测认证组；失败时允许手填或留空。
+- 从 `~/.ssh/config` 及可读 `Include` 文件列出可用 Host，也可以手动新建。
+- 选择已有 Host 后用 `ssh -G` 解析 `HostName`、`User` 和 `Port`，并默认生成 `och-<原 Host>`。
+- 根据目标 IPv4 默认生成 `/32` 路由 CIDR，保存前可以编辑。
+- macOS 上把 VPN 密码保存到 Keychain service `och`；Linux/WSL 不默认落盘保存密码。
 
 创建 `~/.config/och/config.toml`：
 
