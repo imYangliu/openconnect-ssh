@@ -7,7 +7,7 @@ use crossterm::terminal::{
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Tabs, Wrap};
 use ratatui::{Frame, Terminal};
@@ -23,6 +23,75 @@ const VPN_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 const SERVICE_REFRESH_INTERVAL: Duration = Duration::from_secs(15);
 const LOG_REFRESH_INTERVAL: Duration = Duration::from_secs(3);
 const LOGS_PANE_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
+
+mod theme {
+    use ratatui::style::{Color, Modifier, Style};
+
+    pub fn panel_border() -> Style {
+        Style::default().fg(Color::DarkGray)
+    }
+
+    pub fn panel_title() -> Style {
+        Style::default()
+            .fg(Color::LightCyan)
+            .add_modifier(Modifier::BOLD)
+    }
+
+    pub fn body() -> Style {
+        Style::default().fg(Color::Gray)
+    }
+
+    pub fn text() -> Style {
+        Style::default().fg(Color::White)
+    }
+
+    pub fn muted() -> Style {
+        Style::default().fg(Color::DarkGray)
+    }
+
+    pub fn active_label() -> Style {
+        Style::default()
+            .fg(Color::LightYellow)
+            .add_modifier(Modifier::BOLD)
+    }
+
+    pub fn label() -> Style {
+        Style::default().fg(Color::LightCyan)
+    }
+
+    pub fn active_value() -> Style {
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD)
+    }
+
+    pub fn success() -> Style {
+        Style::default().fg(Color::LightGreen)
+    }
+
+    pub fn warning() -> Style {
+        Style::default().fg(Color::LightYellow)
+    }
+
+    pub fn danger() -> Style {
+        Style::default().fg(Color::LightRed)
+    }
+
+    pub fn tab() -> Style {
+        Style::default().fg(Color::Gray)
+    }
+
+    pub fn selected_tab() -> Style {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::LightCyan)
+            .add_modifier(Modifier::BOLD)
+    }
+
+    pub fn log() -> Style {
+        Style::default().fg(Color::LightGreen)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pane {
@@ -854,14 +923,24 @@ fn render(frame: &mut Frame, state: &TuiState) {
         Pane::Config => render_config(frame, root[1], state),
         Pane::Logs => render_logs(frame, root[1], state),
     }
-    let footer_text = format!(
-        "{} | ←/→ tabs | ↑/↓ fields | Tab next | Auto: {} | r refresh | a auto",
-        state.status,
-        if state.auto_refresh { "on" } else { "off" }
-    );
-    let footer = Paragraph::new(footer_text)
-        .block(Block::default().borders(Borders::TOP).title("Status"))
-        .wrap(Wrap { trim: true });
+    let footer = Paragraph::new(Line::from(vec![
+        Span::styled(state.status.clone(), status_style(&state.status)),
+        Span::styled(
+            " | ←/→ tabs | ↑/↓ fields | Tab next | Auto: ",
+            theme::muted(),
+        ),
+        Span::styled(
+            if state.auto_refresh { "on" } else { "off" },
+            if state.auto_refresh {
+                theme::success()
+            } else {
+                theme::warning()
+            },
+        ),
+        Span::styled(" | r refresh | a auto", theme::muted()),
+    ]))
+    .block(panel_block("Status").borders(Borders::TOP))
+    .wrap(Wrap { trim: true });
     frame.render_widget(footer, root[2]);
 }
 
@@ -875,14 +954,11 @@ fn render_tabs(frame: &mut Frame, area: Rect, state: &TuiState) {
         .map(|pane| pane.title())
         .collect::<Vec<_>>();
     let tabs = Tabs::new(titles)
-        .block(Block::default().title("OCH").borders(Borders::ALL))
+        .block(panel_block("OCH"))
         .select(selected)
-        .style(Style::default().fg(Color::Gray))
-        .highlight_style(
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        );
+        .style(theme::tab())
+        .highlight_style(theme::selected_tab())
+        .divider(Span::styled("  ", theme::muted()));
     frame.render_widget(tabs, area);
 }
 
@@ -1039,21 +1115,23 @@ fn render_ssh(frame: &mut Frame, area: Rect, state: &TuiState) {
             .enumerate()
             .take(16)
             .map(|(index, host)| {
-                let marker = if state.active == 1 && state.selected_ssh == index {
-                    "> "
-                } else {
-                    "  "
-                };
-                ListItem::new(format!("{marker}{host}"))
+                let selected = state.active == 1 && state.selected_ssh == index;
+                let marker = if selected { "> " } else { "  " };
+                ListItem::new(Line::from(Span::styled(
+                    format!("{marker}{host}"),
+                    if selected {
+                        theme::active_label()
+                    } else {
+                        theme::text()
+                    },
+                )))
             })
             .collect()
     };
     frame.render_widget(
-        List::new(items).block(
-            Block::default()
-                .title(format!("Import: {}", state.ssh_filter))
-                .borders(Borders::ALL),
-        ),
+        List::new(items)
+            .style(theme::body())
+            .block(panel_block(&format!("Import: {}", state.ssh_filter))),
         chunks[0],
     );
     let rows = vec![
@@ -1212,7 +1290,8 @@ fn render_config(frame: &mut Frame, area: Rect, state: &TuiState) {
     ];
     render_lines(frame, chunks[0], "Config Actions", rows);
     let editor = Paragraph::new(state.config_text.as_str())
-        .block(Block::default().title("TOML").borders(Borders::ALL))
+        .style(theme::text())
+        .block(panel_block("TOML"))
         .wrap(Wrap { trim: false });
     frame.render_widget(editor, chunks[1]);
 }
@@ -1244,16 +1323,25 @@ fn render_logs(frame: &mut Frame, area: Rect, state: &TuiState) {
 
 fn render_lines(frame: &mut Frame, area: Rect, title: &str, rows: Vec<Line<'static>>) {
     let widget = Paragraph::new(rows)
-        .block(Block::default().title(title).borders(Borders::ALL))
+        .style(theme::body())
+        .block(panel_block(title))
         .wrap(Wrap { trim: false });
     frame.render_widget(widget, area);
 }
 
 fn render_text(frame: &mut Frame, area: Rect, title: &str, text: String) {
     let widget = Paragraph::new(text)
-        .block(Block::default().title(title).borders(Borders::ALL))
+        .style(text_style_for_title(title))
+        .block(panel_block(title))
         .wrap(Wrap { trim: false });
     frame.render_widget(widget, area);
+}
+
+fn panel_block(title: &str) -> Block<'static> {
+    Block::default()
+        .title(Span::styled(title.to_string(), theme::panel_title()))
+        .borders(Borders::ALL)
+        .border_style(theme::panel_border())
 }
 
 fn field_line(
@@ -1278,18 +1366,69 @@ fn action_line(index: usize, active: usize, label: &str, detail: &str) -> Line<'
 }
 
 fn styled_line(index: usize, active: usize, label: &str, detail: &str) -> Line<'static> {
-    let style = if index == active {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
+    let label_style = if index == active {
+        theme::active_label()
     } else {
-        Style::default()
+        theme::label()
+    };
+    let value_style = if index == active {
+        theme::active_value()
+    } else {
+        status_style(detail)
+    };
+    let prefix_style = if index == active {
+        theme::active_label()
+    } else {
+        theme::muted()
     };
     let prefix = if index == active { "> " } else { "  " };
     Line::from(vec![
-        Span::styled(format!("{prefix}{label}: "), style),
-        Span::raw(detail.to_string()),
+        Span::styled(prefix.to_string(), prefix_style),
+        Span::styled(format!("{label}: "), label_style),
+        Span::styled(detail.to_string(), value_style),
     ])
+}
+
+fn status_style(text: &str) -> Style {
+    let lower = text.to_lowercase();
+    if lower.contains("error")
+        || lower.contains("fail")
+        || text.contains("失败")
+        || text.contains("错误")
+        || text.contains("无效")
+    {
+        theme::danger()
+    } else if lower.contains("missing")
+        || lower.contains("disabled")
+        || lower.contains("off")
+        || lower == "no"
+        || text.contains("确认")
+        || text.contains("未")
+        || text.contains("不可用")
+    {
+        theme::warning()
+    } else if lower.contains("connected")
+        || lower.contains("installed")
+        || lower.contains("on")
+        || lower == "yes"
+        || text.contains("已")
+        || text.contains("正常")
+        || text.contains("成功")
+    {
+        theme::success()
+    } else if text.trim().is_empty() || text == "-" || text == "<empty>" {
+        theme::muted()
+    } else {
+        theme::text()
+    }
+}
+
+fn text_style_for_title(title: &str) -> Style {
+    if title.contains("Log") {
+        theme::log()
+    } else {
+        theme::text()
+    }
 }
 
 fn require_non_empty(label: &str, value: &str) -> Result<(), String> {
@@ -1406,18 +1545,14 @@ fn logs_or_placeholder(state: &TuiState) -> String {
 }
 
 fn route_count(state: &TuiState) -> usize {
-    state
-        .extra_routes_text
-        .split(|ch: char| ['\n', ' ', '\t', ','].contains(&ch))
-        .map(str::trim)
-        .filter(|route| !route.is_empty())
-        .count()
+    route_entries(&state.extra_routes_text).count()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use ratatui::backend::TestBackend;
+    use ratatui::style::Color;
 
     fn state_for_test() -> TuiState {
         let dir = tempfile::tempdir().unwrap().keep();
@@ -1662,6 +1797,31 @@ mod tests {
         let text = format!("{:?}", terminal.backend().buffer());
         assert!(text.contains("Auto: off"));
         assert!(text.contains("r refresh"));
+    }
+
+    #[test]
+    fn rendered_tui_uses_color_theme() {
+        let mut state = state_for_test();
+        state.status = "VPN 已连接".to_string();
+        state.connection_summary = "connected".to_string();
+
+        let backend = TestBackend::new(100, 28);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(frame, &state)).unwrap();
+        let buffer = terminal.backend().buffer();
+
+        assert!(buffer
+            .content
+            .iter()
+            .any(|cell| cell.fg == Color::LightCyan));
+        assert!(buffer
+            .content
+            .iter()
+            .any(|cell| cell.fg == Color::LightGreen));
+        assert!(buffer
+            .content
+            .iter()
+            .any(|cell| cell.bg == Color::LightCyan));
     }
 
     #[test]
