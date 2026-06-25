@@ -255,8 +255,6 @@ fn validate_required_config(config: &OchConfig) -> Result<(), ConfigError> {
     for (name, value) in [
         ("OCH_VPN_HOST", &config.vpn_host),
         ("OCH_VPN_USER", &config.vpn_user),
-        ("OCH_SSH_HOST", &config.ssh_host),
-        ("OCH_TARGET_HOST", &config.target_host),
     ] {
         if value.is_empty() {
             return Err(ConfigError::MissingRequired(name));

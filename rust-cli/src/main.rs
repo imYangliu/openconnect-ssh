@@ -136,7 +136,7 @@ fn proxy_command(host: &str, port: &str) -> Result<(), String> {
         return Err("proxy-command 缺少 port".into());
     }
 
-    let mut runtime = load_runtime(true).map_err(|error| error.to_string())?;
+    let mut runtime = load_runtime(false).map_err(|error| error.to_string())?;
     runtime.target.host = Some(host.to_string());
     runtime.target.port = Some(port.to_string());
     runtime.target.user = None;
@@ -154,7 +154,7 @@ fn run_vpn_command(command: VpnCommand) -> Result<(), String> {
         return Ok(());
     }
 
-    let runtime = load_runtime(true).map_err(|error| error.to_string())?;
+    let runtime = load_runtime(false).map_err(|error| error.to_string())?;
     let vpn = Vpn::new(runtime);
 
     match command {

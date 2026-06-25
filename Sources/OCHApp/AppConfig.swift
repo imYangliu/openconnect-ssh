@@ -20,6 +20,18 @@ struct AppConfig: Equatable {
             .map(String.init)
             .filter { !$0.isEmpty }
     }
+
+    var hasVPNConfig: Bool {
+        !vpnHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !vpnUser.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var hasManagedSSHConfig: Bool {
+        !defaultHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !targetHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !targetUser.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !targetPort.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 enum ConfigPaths {
@@ -187,9 +199,7 @@ enum TOMLConfigFile {
 
     private static let requiredKeys = [
         "vpn.host",
-        "vpn.user",
-        "ssh.host",
-        "ssh.target_host"
+        "vpn.user"
     ]
 
     private static func apply(
@@ -236,9 +246,7 @@ enum TOMLConfigFile {
         }
         let requiredValues = [
             ("vpn.host", config.vpnHost),
-            ("vpn.user", config.vpnUser),
-            ("ssh.host", config.defaultHost),
-            ("ssh.target_host", config.targetHost)
+            ("vpn.user", config.vpnUser)
         ]
         for (key, value) in requiredValues where value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw TOMLConfigError.missingRequired(key)

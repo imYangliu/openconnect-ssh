@@ -28,12 +28,7 @@ final class AppModel: ObservableObject {
     }
 
     var needsSetup: Bool {
-        config.vpnHost.isEmpty
-            || config.vpnUser.isEmpty
-            || config.defaultHost.isEmpty
-            || config.targetHost.isEmpty
-            || config.targetUser.isEmpty
-            || config.targetPort.isEmpty
+        !config.hasVPNConfig
     }
 
     var hasUnsavedConfigTextChanges: Bool {
@@ -72,15 +67,17 @@ final class AppModel: ObservableObject {
     func saveConfiguration(reportToConfigPane: Bool = true) -> Bool {
         do {
             try synchronizeSettingsForSave()
-            let helperPaths = try HelperPathResolver.resolveAll()
             try TOMLConfigFile.save(config, to: ConfigPaths.configTOML)
-            try SSHConfigManager.writeManagedHost(config: config, ochPath: helperPaths.och.path)
+            if config.hasManagedSSHConfig {
+                let helperPaths = try HelperPathResolver.resolveAll()
+                try SSHConfigManager.writeManagedHost(config: config, ochPath: helperPaths.och.path)
+                append(L10n.tr("log.updated_ssh_host", language: config.appLanguage, ConfigPaths.managedSSHConfig.path))
+            }
             if savePassword, !vpnPassword.isEmpty {
                 try KeychainStore.savePassword(vpnPassword, account: config.vpnUser)
             }
             includeInstalled = SSHConfigManager.mainConfigIncludesManagedFile()
             append(L10n.tr("log.saved_config", language: config.appLanguage, ConfigPaths.configTOML.path))
-            append(L10n.tr("log.updated_ssh_host", language: config.appLanguage, ConfigPaths.managedSSHConfig.path))
             if reportToConfigPane {
                 setConfigStatus(L10n.tr("status.saved_config", language: config.appLanguage, ConfigPaths.configTOML.path))
             }
@@ -101,10 +98,12 @@ final class AppModel: ObservableObject {
             config = newConfig
             vpnPassword = password
             refreshConfigTextFromSettings(log: false)
-            let helperPaths = try HelperPathResolver.resolveAll()
             try TOMLConfigFile.save(config, to: ConfigPaths.configTOML)
-            try SSHConfigManager.writeManagedHost(config: config, ochPath: helperPaths.och.path)
-            try SSHConfigManager.ensureIncludeLine()
+            if config.hasManagedSSHConfig {
+                let helperPaths = try HelperPathResolver.resolveAll()
+                try SSHConfigManager.writeManagedHost(config: config, ochPath: helperPaths.och.path)
+                try SSHConfigManager.ensureIncludeLine()
+            }
             if savePassword, !vpnPassword.isEmpty {
                 try KeychainStore.savePassword(vpnPassword, account: config.vpnUser)
             }
@@ -161,6 +160,12 @@ final class AppModel: ObservableObject {
 
     func installSSHInclude() {
         do {
+            guard config.hasManagedSSHConfig else {
+                let message = L10n.tr("validation.hostname_required", language: config.appLanguage)
+                append(message)
+                setSSHStatus(message, isError: true)
+                return
+            }
             let helperPaths = try HelperPathResolver.resolveAll()
             try SSHConfigManager.writeManagedHost(config: config, ochPath: helperPaths.och.path)
             try SSHConfigManager.ensureIncludeLine()

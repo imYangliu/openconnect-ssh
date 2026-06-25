@@ -38,6 +38,24 @@ port = "22"
     .unwrap();
 }
 
+fn write_vpn_only_config(path: &Path) {
+    fs::write(
+        path,
+        r#"
+[vpn]
+host = "vpn.example.com"
+user = "alice"
+
+[ssh]
+host = "och-target"
+target_host = ""
+user = "alice"
+port = "22"
+"#,
+    )
+    .unwrap();
+}
+
 #[test]
 fn proxy_command_reports_missing_vpn_config() {
     let temp = tempfile::tempdir().unwrap();
@@ -92,4 +110,54 @@ fn proxy_command_execs_nc_when_verify_succeeds() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(fs::read_to_string(nc_log).unwrap().trim(), "1.2.3.4 22");
+}
+
+#[test]
+fn vpn_status_accepts_vpn_only_config() {
+    let temp = tempfile::tempdir().unwrap();
+    let bin = fake_bin_dir(temp.path());
+    let config = temp.path().join("config.toml");
+    write_vpn_only_config(&config);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_och"))
+        .arg("vpn")
+        .arg("status")
+        .env("PATH", &bin)
+        .env("OS_NAME", "Linux")
+        .env("OCH_CONFIG_FILE", &config)
+        .env("OCH_SECRETS_FILE", temp.path().join("missing-secrets.env"))
+        .env("PID_FILE", temp.path().join("missing.pid"))
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("VPN 未连接"), "{stdout}");
+    assert!(stdout.contains("未配置 [ssh].target_host"), "{stdout}");
+}
+
+#[test]
+fn vpn_verify_still_requires_target_host() {
+    let temp = tempfile::tempdir().unwrap();
+    let bin = fake_bin_dir(temp.path());
+    let config = temp.path().join("config.toml");
+    write_vpn_only_config(&config);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_och"))
+        .arg("vpn")
+        .arg("verify")
+        .env("PATH", &bin)
+        .env("OS_NAME", "Linux")
+        .env("OCH_CONFIG_FILE", &config)
+        .env("OCH_SECRETS_FILE", temp.path().join("missing-secrets.env"))
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("未设置 [ssh].target_host"), "{stderr}");
 }

@@ -96,6 +96,7 @@
 "button.back" = "Back";
 "button.next" = "Next";
 "button.finish_setup" = "Finish";
+"button.skip_ssh" = "Skip SSH";
 
 "confirm.delete_password.title" = "Remove saved VPN password?";
 "confirm.delete_password.message" = "The Keychain item for the current VPN user will be deleted. You will need to enter the password again before connecting.";

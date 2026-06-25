@@ -238,6 +238,13 @@ struct SetupWizardView: View {
                     } label: {
                         Text(verbatim: tr("button.back"))
                     }
+                } else {
+                    Button {
+                        skipSSH()
+                    } label: {
+                        Text(verbatim: tr("button.skip_ssh"))
+                    }
+                    .disabled(!canContinue)
                 }
 
                 Button {
@@ -381,6 +388,14 @@ struct SetupWizardView: View {
         var finalConfig = draft
         finalConfig.extraRoutesText = SetupCIDRHelper.append(route: routeCIDR, to: finalConfig.extraRoutesText)
         if model.completeSetup(config: finalConfig, password: password) {
+            dismiss()
+        } else {
+            statusText = tr("setup.save_failed_inline")
+        }
+    }
+
+    private func skipSSH() {
+        if model.completeSetup(config: draft, password: password) {
             dismiss()
         } else {
             statusText = tr("setup.save_failed_inline")

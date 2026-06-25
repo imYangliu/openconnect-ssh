@@ -96,6 +96,7 @@
 "button.back" = "上一步";
 "button.next" = "下一步";
 "button.finish_setup" = "完成";
+"button.skip_ssh" = "跳过 SSH";
 
 "confirm.delete_password.title" = "删除已保存的 VPN 密码？";
 "confirm.delete_password.message" = "当前 VPN 用户对应的 Keychain 项会被删除。下次连接前需要重新输入密码。";

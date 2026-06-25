@@ -76,6 +76,13 @@ assert_not_contains() {
   fi
 }
 
+assert_text_not_contains() {
+  local text="$1" pattern="$2" description="$3"
+  if grep -Eq "$pattern" <<<"$text"; then
+    fail "$description"
+  fi
+}
+
 # Run `func` after sourcing och-vpn.sh with the given OS and fakes, return stdout.
 run_vpn_fn() {
   local os_name="$1" fakes="$2" func="$3"
@@ -383,6 +390,15 @@ assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'language = .*appLang
   "rendered config.toml should persist app.language"
 assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'case \("app", "language"\)' \
   "TOML parser should read app.language"
+required_keys_block="$(awk '/private static let requiredKeys = \[/,/\]/' "$ROOT_DIR/Sources/OCHApp/AppConfig.swift")"
+assert_text_not_contains "$required_keys_block" 'ssh\.target_host|ssh\.host' \
+  "GUI TOML required keys should allow VPN-only setup without SSH fields"
+assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'var hasManagedSSHConfig: Bool' \
+  "AppConfig should centralize complete managed SSH detection"
+assert_contains "$ROOT_DIR/Sources/OCHApp/AppModel.swift" 'if config\.hasManagedSSHConfig \{' \
+  "GUI save/setup should only write managed SSH config when SSH fields are complete"
+assert_contains "$ROOT_DIR/Sources/OCHApp/SetupWizardView.swift" 'button\.skip_ssh' \
+  "Setup wizard should expose a Skip SSH action on the VPN step"
 assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" '\[paths\]' \
   "GUI-rendered config.toml should preserve the empty paths section"
 assert_not_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'och_vpn =|askpass =|och = .*config' \
@@ -409,6 +425,8 @@ for strings_file in \
     "$strings_file should localize pane.connection"
   assert_contains "$strings_file" '"button\.apply_toml"' \
     "$strings_file should localize button.apply_toml"
+  assert_contains "$strings_file" '"button\.skip_ssh"' \
+    "$strings_file should localize button.skip_ssh"
   assert_contains "$strings_file" '"log\.saved_config"' \
     "$strings_file should localize log.saved_config"
   assert_contains "$strings_file" '"error\.toml\.invalid_line"' \
