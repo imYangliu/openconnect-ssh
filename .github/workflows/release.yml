@@ -126,6 +126,9 @@ jobs:
       - macos
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -142,5 +145,9 @@ jobs:
           if gh release view "${version}" >/dev/null 2>&1; then
             gh release upload "${version}" ${files} --clobber
           else
-            gh release create "${version}" ${files} --title "${version}" --generate-notes
+            prerelease_args=()
+            if [[ "${version}" == *-* ]]; then
+              prerelease_args+=(--prerelease)
+            fi
+            gh release create "${version}" ${files} --title "${version}" --generate-notes "${prerelease_args[@]}"
           fi
