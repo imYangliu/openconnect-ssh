@@ -49,6 +49,7 @@ die() {
 usage() {
   cat <<EOF
 用法:
+  ${OCH_COMMAND_NAME} setup
   ${OCH_COMMAND_NAME} [ssh 参数...]
   ${OCH_COMMAND_NAME} --proxy [ssh 参数...]
   ${OCH_COMMAND_NAME} --proxy-command <host> <port>
@@ -62,6 +63,7 @@ usage() {
   - 若未提供目标主机，则使用 DEFAULT_HOST；若未配置 DEFAULT_HOST，则报错
   - 使用 --proxy 时，会额外添加远端端口映射：${PROXY_REMOTE_PORT} -> ${PROXY_LOCAL_HOST}:${PROXY_LOCAL_PORT}
   - 使用 --proxy-command 时，会先确保 VPN 可达，再把 stdio 连接到目标 host:port
+  - 使用 setup 时，会引导写入 ${OCH_CONFIG_FILE}、Keychain 和托管 SSH Host
 
 示例:
   ${OCH_COMMAND_NAME} och-target
@@ -270,6 +272,12 @@ proxy_command() {
 main() {
   require_tool ssh
   require_tool "$CONNECT_SCRIPT"
+
+  if [[ "${1:-}" == "setup" ]]; then
+    local setup_script="${OCH_SETUP_SCRIPT:-$SCRIPT_DIR/och-setup.sh}"
+    require_tool "$setup_script"
+    exec "$setup_script"
+  fi
 
   if [[ "${1:-}" == "--proxy-command" ]]; then
     shift

@@ -27,6 +27,8 @@ load_och_config_helper() {
 : "${PID_FILE:=/tmp/och-openconnect-${USER}.pid}"
 : "${LOG_FILE:=/tmp/och-openconnect-${USER}.log}"
 : "${OCH_CONFIG_FILE:=$HOME/.config/och/config.toml}"
+: "${OCH_KEYCHAIN_SERVICE:=och}"
+: "${OCH_SECURITY_BIN:=/usr/bin/security}"
 : "${OS_NAME:=$(uname -s)}"
 
 load_och_config_helper
@@ -166,6 +168,18 @@ read_vpn_password() {
   if [[ -n "${VPN_PASSWORD:-}" ]]; then
     printf '%s' "$VPN_PASSWORD"
     return 0
+  fi
+
+  if is_macos && [[ -n "${VPN_USER:-}" && -x "$OCH_SECURITY_BIN" ]]; then
+    local keychain_password
+    keychain_password="$("$OCH_SECURITY_BIN" find-generic-password \
+      -s "$OCH_KEYCHAIN_SERVICE" \
+      -a "$VPN_USER" \
+      -w 2>/dev/null || true)"
+    if [[ -n "$keychain_password" ]]; then
+      printf '%s' "$keychain_password"
+      return 0
+    fi
   fi
 
   local vpn_password
