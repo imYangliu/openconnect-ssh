@@ -52,7 +52,7 @@ OCH AnyConnect / OpenConnect 单机连接脚本
   OCH_CONFIG_FILE   OCH TOML 配置文件，默认 ${OCH_CONFIG_FILE}
   OCH_SECRETS_FILE  只含 VPN_PASSWORD 的 secret 文件，默认 ${OCH_SECRETS_FILE}
   VPN_PASSWORD      可选；优先于 secret 文件和 Keychain
-  SUDO_ASKPASS      可选；GUI 使用 sudo -A 时传入
+  SUDO_ASKPASS      可选；sudo 无缓存时的管理员密码 fallback
   PID_FILE          PID 文件路径，默认 ${PID_FILE}
   LOG_FILE          日志文件路径，默认 ${LOG_FILE}
 
@@ -88,10 +88,13 @@ require_value() {
 }
 
 sudo_cmd() {
-  if [[ -n "${SUDO_ASKPASS:-}" ]]; then
+  if sudo -n true >/dev/null 2>&1; then
+    sudo "$@"
+  elif [[ -n "${SUDO_ASKPASS:-}" ]]; then
     sudo -A "$@"
   else
-    sudo "$@"
+    echo 'Error: sudo 需要管理员授权。请先在终端运行 sudo -v，或设置 SUDO_ASKPASS 作为 GUI fallback。' >&2
+    return 1
   fi
 }
 

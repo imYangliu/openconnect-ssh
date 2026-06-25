@@ -98,7 +98,9 @@ ssh och-target
 - `OCH_CONFIG_FILE`
 - `OCH_SECRETS_FILE`
 - `VPN_PASSWORD`
-- `SUDO_ASKPASS`
+- `SUDO_ASKPASS`（可选；仅在没有可用 sudo 缓存时作为管理员密码 fallback）
+
+VPN 密码由 Keychain 或 `VPN_PASSWORD` 提供。管理员密码不保存；如果不想让 GUI 弹出管理员密码框，可以先在终端运行 `sudo -v` 让 macOS 缓存 sudo 凭据。
 
 Linux secret 文件：
 
@@ -148,7 +150,7 @@ macOS GUI App 包命名约定：
 ## 安全提示
 
 - 不要提交真实的 VPN 用户名、VPN 密码、主机地址或端口。
-- GUI 使用 Keychain 保存 VPN 密码；管理员密码不保存，由 `sudo -A` 触发系统授权。
+- GUI 使用 Keychain 保存 VPN 密码；管理员密码不保存，只有 sudo 没有可用缓存时才使用 `SUDO_ASKPASS` fallback。
 - Linux secret 文件只允许保存 `VPN_PASSWORD`，且权限必须是 `0600`。
 
 ## 许可证

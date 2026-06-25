@@ -15,6 +15,12 @@ pub struct Vpn {
     runtime: Runtime,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SudoMode {
+    CachedCredentials,
+    AskpassFallback,
+}
+
 impl Vpn {
     pub fn new(runtime: Runtime) -> Self {
         Self { runtime }
@@ -63,6 +69,7 @@ impl Vpn {
             return Ok(());
         }
 
+        let sudo_mode = self.resolve_sudo_mode()?;
         let password = self.read_vpn_password()?;
         self.prepare_log_file()?;
 
@@ -94,10 +101,7 @@ impl Vpn {
             .map_err(|error| error.to_string())?;
         let log_stderr = log_stdout.try_clone().map_err(|error| error.to_string())?;
 
-        let mut command = Command::new("sudo");
-        if self.runtime.sudo_askpass.is_some() {
-            command.arg("-A");
-        }
+        let mut command = sudo_command_for_mode(sudo_mode);
         command
             .arg("env")
             .arg(format!(
@@ -151,14 +155,18 @@ impl Vpn {
             return Ok(());
         }
         let pid = read_trimmed(&self.runtime.pid_file).map_err(|error| error.to_string())?;
-        if self.sudo_kill(&pid, "0") {
-            self.sudo_command(["kill", &pid])?;
+        let sudo_mode = self.resolve_sudo_mode()?;
+        if self.sudo_kill(sudo_mode, &pid, "0") {
+            self.sudo_command(sudo_mode, ["kill", &pid])?;
             thread::sleep(Duration::from_secs(1));
             println!("VPN 已断开");
         } else {
             println!("发现陈旧 PID 文件，已清理");
         }
-        self.sudo_command(["rm", "-f", &self.runtime.pid_file.display().to_string()])?;
+        self.sudo_command(
+            sudo_mode,
+            ["rm", "-f", &self.runtime.pid_file.display().to_string()],
+        )?;
         Ok(())
     }
 
@@ -313,6 +321,13 @@ impl Vpn {
 
     fn is_macos(&self) -> bool {
         is_macos(&self.runtime.os_name)
+    }
+
+    fn resolve_sudo_mode(&self) -> Result<SudoMode, String> {
+        choose_sudo_mode(
+            sudo_cached_credentials_available(),
+            self.runtime.sudo_askpass.is_some(),
+        )
     }
 
     fn openconnect_bin(&self) -> String {
@@ -492,21 +507,25 @@ impl Vpn {
                 .is_ok_and(|status| status.success())
     }
 
-    fn sudo_kill(&self, pid: &str, signal: &str) -> bool {
+    fn sudo_kill(&self, sudo_mode: SudoMode, pid: &str, signal: &str) -> bool {
         let signal_arg = format!("-{signal}");
-        self.sudo_command_vec(vec!["kill".to_string(), signal_arg, pid.to_string()])
-            .is_ok()
+        self.sudo_command_vec(
+            sudo_mode,
+            vec!["kill".to_string(), signal_arg, pid.to_string()],
+        )
+        .is_ok()
     }
 
-    fn sudo_command<const N: usize>(&self, args: [&str; N]) -> Result<(), String> {
-        self.sudo_command_vec(args.into_iter().map(str::to_string).collect())
+    fn sudo_command<const N: usize>(
+        &self,
+        sudo_mode: SudoMode,
+        args: [&str; N],
+    ) -> Result<(), String> {
+        self.sudo_command_vec(sudo_mode, args.into_iter().map(str::to_string).collect())
     }
 
-    fn sudo_command_vec(&self, args: Vec<String>) -> Result<(), String> {
-        let mut command = Command::new("sudo");
-        if self.runtime.sudo_askpass.is_some() {
-            command.arg("-A");
-        }
+    fn sudo_command_vec(&self, sudo_mode: SudoMode, args: Vec<String>) -> Result<(), String> {
+        let mut command = sudo_command_for_mode(sudo_mode);
         command.args(args);
         let status = command.status().map_err(|error| error.to_string())?;
         if status.success() {
@@ -520,6 +539,47 @@ impl Vpn {
         if let Ok(tail) = tail_lines(&self.runtime.log_file, 40) {
             eprintln!("{tail}");
         }
+    }
+}
+
+fn sudo_cached_credentials_available() -> bool {
+    Command::new("sudo")
+        .arg("-n")
+        .arg("true")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn choose_sudo_mode(
+    cached_credentials_available: bool,
+    has_askpass: bool,
+) -> Result<SudoMode, String> {
+    if cached_credentials_available {
+        Ok(SudoMode::CachedCredentials)
+    } else if has_askpass {
+        Ok(SudoMode::AskpassFallback)
+    } else {
+        Err(
+            "sudo 需要管理员授权。请先在终端运行 `sudo -v`，或设置 SUDO_ASKPASS 作为 GUI fallback"
+                .into(),
+        )
+    }
+}
+
+fn sudo_command_for_mode(mode: SudoMode) -> Command {
+    let mut command = Command::new("sudo");
+    for arg in sudo_mode_args(mode) {
+        command.arg(arg);
+    }
+    command
+}
+
+fn sudo_mode_args(mode: SudoMode) -> &'static [&'static str] {
+    match mode {
+        SudoMode::CachedCredentials => &[],
+        SudoMode::AskpassFallback => &["-A"],
     }
 }
 
@@ -569,7 +629,10 @@ pub fn parse_linux_iface(output: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_linux_iface, parse_macos_iface, parse_macos_route_line};
+    use super::{
+        choose_sudo_mode, parse_linux_iface, parse_macos_iface, parse_macos_route_line,
+        sudo_mode_args, SudoMode,
+    };
 
     #[test]
     fn parses_macos_route_output() {
@@ -591,5 +654,26 @@ destination: default
             parse_linux_iface("1.2.3.4 via 10.0.0.1 dev eth0 src 10.0.0.5"),
             "eth0"
         );
+    }
+
+    #[test]
+    fn sudo_mode_uses_cached_credentials_without_askpass() {
+        let mode = choose_sudo_mode(true, true).expect("cached sudo mode");
+        assert_eq!(mode, SudoMode::CachedCredentials);
+        assert!(sudo_mode_args(mode).is_empty());
+    }
+
+    #[test]
+    fn sudo_mode_falls_back_to_askpass_when_sudo_is_uncached() {
+        let mode = choose_sudo_mode(false, true).expect("askpass sudo mode");
+        assert_eq!(mode, SudoMode::AskpassFallback);
+        assert_eq!(sudo_mode_args(mode), ["-A"]);
+    }
+
+    #[test]
+    fn sudo_mode_requires_auth_path_when_sudo_is_uncached() {
+        let error = choose_sudo_mode(false, false).expect_err("missing sudo auth");
+        assert!(error.contains("sudo -v"));
+        assert!(error.contains("SUDO_ASKPASS"));
     }
 }

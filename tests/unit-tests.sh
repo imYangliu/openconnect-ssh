@@ -358,6 +358,22 @@ assert_contains "$ROOT_DIR/.github/workflows/release.yml" 'OCHApp-\$\{version\}-
   "release workflow should publish the macOS app artifact"
 assert_contains "$ROOT_DIR/.github/workflows/release.yml" 'macos-26' \
   "release workflow should build macOS artifacts on an arm64 runner"
+assert_contains "$ROOT_DIR/rust-cli/src/vpn.rs" 'sudo_cached_credentials_available' \
+  "Rust CLI should check cached sudo credentials before askpass fallback"
+assert_contains "$ROOT_DIR/rust-cli/src/vpn.rs" 'SudoMode::AskpassFallback' \
+  "Rust CLI should keep askpass as a fallback sudo mode"
+assert_contains "$ROOT_DIR/src/och-vpn.sh" 'sudo -n true' \
+  "shell VPN helper should try cached sudo credentials before askpass fallback"
+assert_contains "$ROOT_DIR/src/och-sudo-askpass.sh" 'Administrator password for OCH' \
+  "askpass helper should clearly ask for the administrator password"
+assert_not_contains "$ROOT_DIR/README.md" '由 .*sudo -A.* 触发|默认.*sudo -A' \
+  "README should not say the GUI defaults to sudo -A"
+assert_not_contains "$ROOT_DIR/docs/usage.md" '由 .*sudo -A.* 触发|默认.*sudo -A' \
+  "usage docs should not say the GUI defaults to sudo -A"
+assert_contains "$ROOT_DIR/README.md" 'sudo -v' \
+  "README should explain how to avoid the askpass fallback"
+assert_contains "$ROOT_DIR/docs/usage.md" 'sudo -v' \
+  "usage docs should explain how to avoid the askpass fallback"
 assert_not_contains "$ROOT_DIR/README.md" 'och-vpn' \
   "README should not document a public och-vpn command"
 assert_not_contains "$ROOT_DIR/docs/usage.md" 'och-vpn' \

@@ -163,7 +163,9 @@ CLI 只接受这些环境变量：
 - `OCH_CONFIG_FILE`
 - `OCH_SECRETS_FILE`
 - `VPN_PASSWORD`
-- `SUDO_ASKPASS`
+- `SUDO_ASKPASS`（可选；仅在没有可用 sudo 缓存时作为管理员密码 fallback）
+
+VPN 密码由 Keychain 或 `VPN_PASSWORD` 提供。管理员密码不保存；如果不想让 GUI 弹出管理员密码框，可以先在终端运行 `sudo -v` 让 macOS 缓存 sudo 凭据。
 
 普通配置不能用环境变量覆盖。Linux secret 文件只允许：
 
