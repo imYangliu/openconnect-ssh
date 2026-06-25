@@ -87,7 +87,7 @@ make build
 make run-gui
 ```
 
-GUI 会读写 `~/.config/och/gui.env`。VPN 密码保存到 macOS Keychain 的 `och` service 下，不会写入配置文件。
+GUI 会读写 `~/.config/och/config.yaml`，并在保存时同步生成脚本兼容的 `~/.config/och/gui.env`。VPN 密码保存到 macOS Keychain 的 `och` service 下，不会写入配置文件。
 
 ### 3. 运行 CLI
 
