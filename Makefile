@@ -4,6 +4,7 @@ SHELL_SCRIPTS := \
 	och \
 	src/och-config.sh \
 	src/och.sh \
+	src/och-setup.sh \
 	src/och-vpn.sh \
 	src/macos-vpnc-route-wrapper.sh \
 	src/och-sudo-askpass.sh \
@@ -20,7 +21,7 @@ help:
 		'  make check-shell     检查 shell 脚本语法' \
 		'  make shellcheck      运行 shellcheck；未安装时跳过' \
 		'  make build           构建 SwiftUI GUI' \
-		'  make run-gui         构建并启动 GUI' \
+		'  make run-gui         构建并后台启动 GUI' \
 		'  make smoke           运行轻量 smoke tests' \
 		'  make install         安装 CLI 和运行时文件' \
 		'  make clean           删除 SwiftPM 构建产物'
@@ -47,7 +48,44 @@ build:
 	swift build
 
 run-gui: build
-	.build/debug/OCHApp
+	@app=".build/debug/OCHApp.app"; \
+	rm -rf "$$app"; \
+	mkdir -p "$$app/Contents/MacOS"; \
+	mkdir -p "$$app/Contents/Resources/bin"; \
+	mkdir -p "$$app/Contents/Resources/libexec/och"; \
+	cp .build/debug/OCHApp "$$app/Contents/MacOS/OCHApp"; \
+	cp -R .build/debug/OCH_OCHApp.bundle "$$app/OCH_OCHApp.bundle"; \
+	install -m 0755 och "$$app/Contents/Resources/bin/och"; \
+	install -m 0755 src/och-config.sh "$$app/Contents/Resources/libexec/och/och-config.sh"; \
+	install -m 0755 src/och.sh "$$app/Contents/Resources/libexec/och/och.sh"; \
+	install -m 0755 src/och-vpn.sh "$$app/Contents/Resources/libexec/och/och-vpn.sh"; \
+	install -m 0755 src/macos-vpnc-route-wrapper.sh "$$app/Contents/Resources/libexec/och/macos-vpnc-route-wrapper.sh"; \
+	install -m 0755 src/och-sudo-askpass.sh "$$app/Contents/Resources/libexec/och/och-sudo-askpass.sh"; \
+	printf '%s\n' \
+		'<?xml version="1.0" encoding="UTF-8"?>' \
+		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+		'<plist version="1.0">' \
+		'<dict>' \
+		'  <key>CFBundleExecutable</key>' \
+		'  <string>OCHApp</string>' \
+		'  <key>CFBundleIdentifier</key>' \
+		'  <string>io.github.imyangliu.och</string>' \
+		'  <key>CFBundleName</key>' \
+		'  <string>OCH</string>' \
+		'  <key>CFBundleDisplayName</key>' \
+		'  <string>OCH</string>' \
+		'  <key>CFBundlePackageType</key>' \
+		'  <string>APPL</string>' \
+		'  <key>CFBundleVersion</key>' \
+		'  <string>1</string>' \
+		'  <key>CFBundleShortVersionString</key>' \
+		'  <string>0.1.0</string>' \
+		'</dict>' \
+		'</plist>' \
+		> "$$app/Contents/Info.plist"; \
+	open -n "$$app"; \
+	osascript -e 'tell application "OCH" to activate' >/dev/null 2>&1 || true; \
+	echo "OCH launched: $$app"
 
 smoke:
 	@bash -euo pipefail -c '\

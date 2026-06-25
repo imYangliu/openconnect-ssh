@@ -1,17 +1,15 @@
 import Foundation
-import SwiftUI
 
 enum AppLanguage: String, CaseIterable, Identifiable {
     case system
     case english = "en"
     case zhHans = "zh-Hans"
 
-    static let storageKey = "appLanguage"
     private static let supportedCodes = [english.rawValue, zhHans.rawValue]
 
     var id: String { rawValue }
 
-    var titleKey: LocalizedStringKey {
+    var titleKey: String {
         switch self {
         case .system:
             return "language.system"
@@ -35,23 +33,19 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         Locale(identifier: resolvedCode)
     }
 
-    static var stored: AppLanguage {
-        guard let rawValue = UserDefaults.standard.string(forKey: storageKey),
-              let language = AppLanguage(rawValue: rawValue) else {
-            return .system
-        }
-        return language
+    static func parse(_ rawValue: String) -> AppLanguage {
+        AppLanguage(rawValue: rawValue) ?? .system
     }
 }
 
 enum L10n {
-    static func tr(_ key: String, _ arguments: CVarArg...) -> String {
-        let format = NSLocalizedString(key, bundle: bundle, comment: "")
-        return String(format: format, locale: AppLanguage.stored.locale, arguments: arguments)
+    static func tr(_ key: String, language: AppLanguage = .system, _ arguments: CVarArg...) -> String {
+        let format = NSLocalizedString(key, bundle: bundle(for: language), comment: "")
+        return String(format: format, locale: language.locale, arguments: arguments)
     }
 
-    private static var bundle: Bundle {
-        let code = AppLanguage.stored.resolvedCode
+    private static func bundle(for language: AppLanguage) -> Bundle {
+        let code = language.resolvedCode
         guard let path = Bundle.module.path(forResource: code, ofType: "lproj"),
               let localizedBundle = Bundle(path: path) else {
             return Bundle.module

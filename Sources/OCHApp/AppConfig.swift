@@ -1,18 +1,5 @@
 import Foundation
 
-/// Resolves the Homebrew prefix: `/opt/homebrew` on Apple Silicon, `/usr/local`
-/// on Intel. Falls back to `/opt/homebrew` when neither `och` binary is found,
-/// so the defaults stay stable and remain overridable via config.toml.
-enum BrewPrefix {
-    static let path: String = {
-        for prefix in ["/opt/homebrew", "/usr/local"] where
-            FileManager.default.isExecutableFile(atPath: "\(prefix)/bin/och") {
-            return prefix
-        }
-        return "/opt/homebrew"
-    }()
-}
-
 struct AppConfig: Equatable {
     var vpnHost = ""
     var vpnUser = ""
@@ -25,9 +12,7 @@ struct AppConfig: Equatable {
     var proxyLocalHost = "127.0.0.1"
     var proxyLocalPort = "7890"
     var proxyRemotePort = "7890"
-    var ochPath = "\(BrewPrefix.path)/bin/och"
-    var ochVpnPath = "\(BrewPrefix.path)/bin/och-vpn"
-    var askpassPath = "\(BrewPrefix.path)/libexec/och/och-sudo-askpass.sh"
+    var appLanguage: AppLanguage = .system
 
     var extraRoutes: [String] {
         extraRoutesText
@@ -50,13 +35,29 @@ enum ConfigPaths {
 enum TOMLConfigError: LocalizedError {
     case invalidLine(Int, String)
     case invalidSection(Int, String)
+    case unknownSection(Int, String)
+    case unknownKey(Int, String, String)
+    case invalidValue(Int, String, String)
+    case missingRequired(String)
 
     var errorDescription: String? {
+        localizedDescription(language: .system)
+    }
+
+    func localizedDescription(language: AppLanguage) -> String {
         switch self {
         case .invalidLine(let line, let value):
-            return L10n.tr("error.toml.invalid_line", line, value)
+            return L10n.tr("error.toml.invalid_line", language: language, line, value)
         case .invalidSection(let line, let value):
-            return L10n.tr("error.toml.invalid_section", line, value)
+            return L10n.tr("error.toml.invalid_section", language: language, line, value)
+        case .unknownSection(let line, let value):
+            return L10n.tr("error.toml.unknown_section", language: language, line, value)
+        case .unknownKey(let line, let section, let key):
+            return L10n.tr("error.toml.unknown_key", language: language, line, section, key)
+        case .invalidValue(let line, let key, let value):
+            return L10n.tr("error.toml.invalid_value", language: language, line, key, value)
+        case .missingRequired(let key):
+            return L10n.tr("error.toml.missing_required", language: language, key)
         }
     }
 }
@@ -105,9 +106,10 @@ enum TOMLConfigFile {
         remote_port = \(quote(config.proxyRemotePort))
 
         [paths]
-        och = \(quote(config.ochPath))
-        och_vpn = \(quote(config.ochVpnPath))
-        askpass = \(quote(config.askpassPath))
+        # Runtime helper paths are fixed by the installed app or CLI layout.
+
+        [app]
+        language = \(quote(config.appLanguage.rawValue))
 
         """
     }
@@ -117,6 +119,7 @@ enum TOMLConfigFile {
         var section = ""
         var routes: [String] = []
         var sawRoutes = false
+        var seenKeys = Set<String>()
 
         for (index, rawLine) in contents.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
             let lineNumber = index + 1
@@ -131,6 +134,9 @@ enum TOMLConfigFile {
                 guard !name.isEmpty else {
                     throw TOMLConfigError.invalidSection(lineNumber, line)
                 }
+                guard allowedSections.contains(name) else {
+                    throw TOMLConfigError.unknownSection(lineNumber, name)
+                }
                 section = name
                 continue
             }
@@ -139,14 +145,17 @@ enum TOMLConfigFile {
             if section == "routes", pair.key == "extra" {
                 routes = try parseArray(pair.value, lineNumber: lineNumber)
                 sawRoutes = true
+                seenKeys.insert("routes.extra")
                 continue
             }
-            apply(pair.value, section: section, key: pair.key, to: &config)
+            try apply(pair.value, section: section, key: pair.key, lineNumber: lineNumber, to: &config)
+            seenKeys.insert("\(section).\(pair.key)")
         }
 
         if sawRoutes {
             config.extraRoutesText = routes.joined(separator: "\n")
         }
+        try validateRequiredKeys(seenKeys)
         return config
     }
 
@@ -174,7 +183,24 @@ enum TOMLConfigFile {
             .filter { !$0.isEmpty }
     }
 
-    private static func apply(_ value: String, section: String, key: String, to config: inout AppConfig) {
+    private static let allowedSections = Set(["vpn", "ssh", "routes", "proxy", "paths", "app"])
+
+    private static let requiredKeys = [
+        "vpn.host",
+        "vpn.user",
+        "ssh.host",
+        "ssh.target_host",
+        "ssh.user",
+        "ssh.port"
+    ]
+
+    private static func apply(
+        _ value: String,
+        section: String,
+        key: String,
+        lineNumber: Int,
+        to config: inout AppConfig
+    ) throws {
         switch (section, key) {
         case ("vpn", "host"):
             config.vpnHost = value
@@ -196,14 +222,19 @@ enum TOMLConfigFile {
             config.proxyLocalPort = value
         case ("proxy", "remote_port"):
             config.proxyRemotePort = value
-        case ("paths", "och"):
-            config.ochPath = value
-        case ("paths", "och_vpn"):
-            config.ochVpnPath = value
-        case ("paths", "askpass"):
-            config.askpassPath = value
+        case ("app", "language"):
+            guard let language = AppLanguage(rawValue: value) else {
+                throw TOMLConfigError.invalidValue(lineNumber, "app.language", value)
+            }
+            config.appLanguage = language
         default:
-            break
+            throw TOMLConfigError.unknownKey(lineNumber, section, key)
+        }
+    }
+
+    private static func validateRequiredKeys(_ seenKeys: Set<String>) throws {
+        for key in requiredKeys where !seenKeys.contains(key) {
+            throw TOMLConfigError.missingRequired(key)
         }
     }
 

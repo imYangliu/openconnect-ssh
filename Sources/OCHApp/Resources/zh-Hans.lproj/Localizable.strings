@@ -11,12 +11,20 @@
 
 "status.ssh_include.installed" = "SSH Include 已安装";
 "status.ssh_include.missing" = "SSH Include 缺失";
+"status.ssh_include.missing_help" = "OCH 会写入托管 SSH Host，但当前 ~/.ssh/config 还没有 Include 它。";
+"status.ssh_include.install_success" = "已安装 SSH Include：%@";
+"status.connection.saving" = "连接前正在保存配置...";
+"status.connection.save_failed" = "配置保存失败。请先处理 TOML 错误再连接。";
+"status.connection.running" = "正在运行 och-vpn %@...";
+"status.connection.completed" = "命令已结束，退出状态：%d。";
+"status.saved_config" = "已保存配置：%@";
+"status.toml.unsaved_changes" = "TOML 有未保存编辑。应用或同步可能覆盖当前设置。";
+"accessibility.selected" = "已选中";
 
 "section.vpn" = "VPN";
 "section.managed_ssh_host" = "托管 SSH Host";
 "section.extra_routes" = "额外路由";
 "section.proxy" = "代理";
-"section.paths" = "路径";
 "section.language" = "语言";
 
 "field.gateway" = "网关";
@@ -30,10 +38,50 @@
 "field.local_port" = "本地端口";
 "field.remote_port" = "远端端口";
 "field.language" = "语言";
+"field.route_cidr" = "路由 CIDR";
+
+"placeholder.gateway" = "vpn.example.com";
+"placeholder.vpn_user" = "你的 VPN 用户名";
+"placeholder.auth_group" = "可选认证组";
+"placeholder.host" = "och-target";
+"placeholder.hostname" = "server.example.com 或 10.0.0.5";
+"placeholder.ssh_user" = "远端 SSH 用户名";
+"placeholder.port" = "22";
+"placeholder.route_cidr" = "10.0.0.5/32";
+"placeholder.local_host" = "127.0.0.1";
+"placeholder.proxy_port" = "7890";
+
+"help.gateway" = "och-vpn 使用的 OpenConnect 网关地址。";
+"help.auth_group" = "如果网关不要求认证组，可以留空。";
+"help.password" = "用于 VPN 登录；只有启用保存时才会写入 Keychain。";
+"help.host" = "OCH 将写入 SSH 配置的别名。";
+"help.hostname" = "通过 VPN 访问的真实 SSH 目标。";
+"help.route_cidr" = "可选的目标路由，例如单台主机使用 /32。";
+"help.extra_routes" = "每行填写一个 CIDR，也可以用空格或逗号分隔。";
+"help.local_host" = "SSH 代理监听的本地地址。";
 
 "toggle.save_vpn_password" = "将 VPN 密码保存到 Keychain";
 
+"setup.title" = "OCH 引导";
+"setup.step.vpn" = "1 / 2 VPN";
+"setup.step.ssh" = "2 / 2 SSH";
+"setup.section.choose_host" = "选择主机";
+"setup.existing_host" = "从 SSH 配置导入";
+"setup.manual_host" = "手动填写";
+"setup.no_ssh_hosts" = "未发现可用 SSH Host";
+"setup.auth_group.manual" = "手动填写";
+"setup.auth_group.none" = "未探测到认证组，可以手动填写或留空。";
+"setup.auth_group.found" = "已探测到 %d 个认证组。";
+"setup.auth_group.failed" = "认证组探测失败：%@";
+"setup.auth_group.recovery" = "请检查网关和用户名，或手动填写认证组。";
+"setup.ssh.resolved" = "已导入 %@。HostName：%@，User：%@，Port：%@。";
+"setup.ssh.resolve_failed" = "解析 SSH Host 失败：%@";
+"setup.route.invalid" = "CIDR 无效：%@";
+"setup.working" = "请等待当前检查完成。";
+"setup.save_failed_inline" = "引导配置保存失败。请查看日志后重试。";
+
 "button.save" = "保存";
+"button.setup_wizard" = "引导设置";
 "button.connect" = "连接";
 "button.disconnect" = "断开";
 "button.status" = "状态";
@@ -42,6 +90,19 @@
 "button.reload" = "重新加载";
 "button.apply_toml" = "应用 TOML";
 "button.sync_from_settings" = "从设置同步";
+"button.probe_auth_groups" = "探测认证组";
+"button.use_selected_host" = "使用所选 Host";
+"button.cancel" = "取消";
+"button.back" = "上一步";
+"button.next" = "下一步";
+"button.finish_setup" = "完成";
+
+"confirm.delete_password.title" = "删除已保存的 VPN 密码？";
+"confirm.delete_password.message" = "当前 VPN 用户对应的 Keychain 项会被删除。下次连接前需要重新输入密码。";
+"confirm.reload.title" = "重新加载配置？";
+"confirm.reload.message" = "重新加载会从磁盘读取 config.toml，并替换当前界面字段。";
+"confirm.sync_toml.title" = "覆盖 TOML 编辑？";
+"confirm.sync_toml.message" = "从设置同步会用表单中的值替换当前 TOML 文本。";
 
 "label.log" = "日志";
 
@@ -55,12 +116,30 @@
 "log.refreshed_toml" = "已从设置刷新 TOML";
 "log.removed_keychain_password" = "已从 Keychain 删除 VPN 密码";
 "log.keychain_delete_failed" = "删除 Keychain 项失败：%@";
+"log.keychain_read_failed" = "读取 Keychain 密码失败：%@";
 "log.installed_ssh_include" = "已安装 SSH Include：%@";
 "log.ssh_config_update_failed" = "更新 SSH 配置失败：%@";
 "log.vpn_user_required" = "必须填写 VPN_USER";
 "log.vpn_password_required" = "必须填写 VPN 密码。请在密码字段中输入，或将它保存到 Keychain。";
 "log.exit_status" = "退出状态：%d";
 "log.command_failed" = "命令失败：%@";
+"log.setup_completed" = "引导完成，已保存配置：%@";
+"log.setup_failed" = "引导保存失败：%@";
 
 "error.toml.invalid_line" = "第 %d 行 TOML 无效：%@";
 "error.toml.invalid_section" = "第 %d 行 TOML section 无效：%@";
+
+"validation.vpn_gateway_required" = "必须填写 VPN 网关。";
+"validation.vpn_user_required" = "必须填写 VPN 用户。";
+"validation.vpn_password_required" = "必须填写 VPN 密码。";
+"validation.ssh_host_required" = "必须填写 SSH Host 别名。";
+"validation.hostname_required" = "必须填写 HostName。";
+"validation.ssh_user_required" = "必须填写 SSH 用户。";
+"validation.port_required" = "必须填写端口。";
+"validation.local_host_required" = "必须填写本地地址。";
+"validation.local_port_required" = "必须填写本地端口。";
+"validation.remote_port_required" = "必须填写远端端口。";
+"validation.port_invalid" = "端口必须是 1 到 65535。";
+"validation.route_cidr_invalid" = "CIDR 无效：%@";
+"error.helper_not_found" = "找不到 OCH helper %@。请重新构建或重新安装 App。";
+"error.keychain.user_canceled" = "Keychain 访问被取消或拒绝。";

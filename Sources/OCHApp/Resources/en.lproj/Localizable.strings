@@ -11,12 +11,20 @@
 
 "status.ssh_include.installed" = "SSH Include installed";
 "status.ssh_include.missing" = "SSH Include missing";
+"status.ssh_include.missing_help" = "OCH writes a managed SSH host, but your ~/.ssh/config does not include it yet.";
+"status.ssh_include.install_success" = "Installed SSH Include: %@";
+"status.connection.saving" = "Saving configuration before connecting...";
+"status.connection.save_failed" = "Could not save the configuration. Check the TOML error before connecting.";
+"status.connection.running" = "Running och-vpn %@...";
+"status.connection.completed" = "Command finished with exit status %d.";
+"status.saved_config" = "Saved configuration: %@";
+"status.toml.unsaved_changes" = "TOML has unsaved edits. Applying or syncing may overwrite the current settings.";
+"accessibility.selected" = "Selected";
 
 "section.vpn" = "VPN";
 "section.managed_ssh_host" = "Managed SSH Host";
 "section.extra_routes" = "Extra Routes";
 "section.proxy" = "Proxy";
-"section.paths" = "Paths";
 "section.language" = "Language";
 
 "field.gateway" = "Gateway";
@@ -30,10 +38,50 @@
 "field.local_port" = "Local port";
 "field.remote_port" = "Remote port";
 "field.language" = "Language";
+"field.route_cidr" = "Route CIDR";
+
+"placeholder.gateway" = "vpn.example.com";
+"placeholder.vpn_user" = "your VPN username";
+"placeholder.auth_group" = "optional group name";
+"placeholder.host" = "och-target";
+"placeholder.hostname" = "server.example.com or 10.0.0.5";
+"placeholder.ssh_user" = "remote SSH username";
+"placeholder.port" = "22";
+"placeholder.route_cidr" = "10.0.0.5/32";
+"placeholder.local_host" = "127.0.0.1";
+"placeholder.proxy_port" = "7890";
+
+"help.gateway" = "OpenConnect gateway host used by och-vpn.";
+"help.auth_group" = "Leave blank if your gateway does not require an auth group.";
+"help.password" = "Used for VPN login; saved to Keychain only when enabled.";
+"help.host" = "Alias OCH will add to your SSH config.";
+"help.hostname" = "The real SSH target reached through the VPN.";
+"help.route_cidr" = "Optional route to add for the target, such as one host with /32.";
+"help.extra_routes" = "Enter one CIDR per line, separated by spaces, commas, or new lines.";
+"help.local_host" = "Local address for the SSH proxy listener.";
 
 "toggle.save_vpn_password" = "Save VPN password in Keychain";
 
+"setup.title" = "OCH Setup";
+"setup.step.vpn" = "1 / 2 VPN";
+"setup.step.ssh" = "2 / 2 SSH";
+"setup.section.choose_host" = "Choose Host";
+"setup.existing_host" = "Import from SSH Config";
+"setup.manual_host" = "Manual";
+"setup.no_ssh_hosts" = "No usable SSH Host found";
+"setup.auth_group.manual" = "Manual";
+"setup.auth_group.none" = "No auth groups found. Enter one manually or leave it blank.";
+"setup.auth_group.found" = "Found %d auth groups.";
+"setup.auth_group.failed" = "Auth group probe failed: %@";
+"setup.auth_group.recovery" = "Check the gateway and username, or enter the auth group manually.";
+"setup.ssh.resolved" = "Imported %@. HostName: %@, User: %@, Port: %@.";
+"setup.ssh.resolve_failed" = "SSH Host resolve failed: %@";
+"setup.route.invalid" = "Invalid CIDR: %@";
+"setup.working" = "Wait for the current check to finish.";
+"setup.save_failed_inline" = "Setup could not be saved. Check Logs for details and try again.";
+
 "button.save" = "Save";
+"button.setup_wizard" = "Setup Wizard";
 "button.connect" = "Connect";
 "button.disconnect" = "Disconnect";
 "button.status" = "Status";
@@ -42,6 +90,19 @@
 "button.reload" = "Reload";
 "button.apply_toml" = "Apply TOML";
 "button.sync_from_settings" = "Sync From Settings";
+"button.probe_auth_groups" = "Probe Auth Groups";
+"button.use_selected_host" = "Use Selected Host";
+"button.cancel" = "Cancel";
+"button.back" = "Back";
+"button.next" = "Next";
+"button.finish_setup" = "Finish";
+
+"confirm.delete_password.title" = "Remove saved VPN password?";
+"confirm.delete_password.message" = "The Keychain item for the current VPN user will be deleted. You will need to enter the password again before connecting.";
+"confirm.reload.title" = "Reload configuration?";
+"confirm.reload.message" = "Reloading reads config.toml from disk and replaces the current fields.";
+"confirm.sync_toml.title" = "Replace TOML edits?";
+"confirm.sync_toml.message" = "Sync From Settings will replace the current TOML text with values from the form.";
 
 "label.log" = "Log";
 
@@ -55,12 +116,30 @@
 "log.refreshed_toml" = "Refreshed TOML from settings";
 "log.removed_keychain_password" = "Removed VPN password from Keychain";
 "log.keychain_delete_failed" = "Keychain delete failed: %@";
+"log.keychain_read_failed" = "Keychain password read failed: %@";
 "log.installed_ssh_include" = "Installed SSH Include: %@";
 "log.ssh_config_update_failed" = "SSH config update failed: %@";
 "log.vpn_user_required" = "VPN_USER is required";
 "log.vpn_password_required" = "VPN password is required. Enter it in the password field or save it to Keychain.";
 "log.exit_status" = "Exit status: %d";
 "log.command_failed" = "Command failed: %@";
+"log.setup_completed" = "Setup completed. Saved config: %@";
+"log.setup_failed" = "Setup save failed: %@";
 
 "error.toml.invalid_line" = "Invalid TOML at line %d: %@";
 "error.toml.invalid_section" = "Invalid TOML section at line %d: %@";
+
+"validation.vpn_gateway_required" = "VPN gateway is required.";
+"validation.vpn_user_required" = "VPN user is required.";
+"validation.vpn_password_required" = "VPN password is required.";
+"validation.ssh_host_required" = "SSH Host alias is required.";
+"validation.hostname_required" = "HostName is required.";
+"validation.ssh_user_required" = "SSH user is required.";
+"validation.port_required" = "Port is required.";
+"validation.local_host_required" = "Local host is required.";
+"validation.local_port_required" = "Local port is required.";
+"validation.remote_port_required" = "Remote port is required.";
+"validation.port_invalid" = "Enter a port from 1 to 65535.";
+"validation.route_cidr_invalid" = "Invalid CIDR: %@";
+"error.helper_not_found" = "Cannot find OCH helper %@. Rebuild or reinstall the app.";
+"error.keychain.user_canceled" = "Keychain access was canceled or denied.";

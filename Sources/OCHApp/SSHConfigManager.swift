@@ -34,7 +34,7 @@ enum SSHConfigManager {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: ConfigPaths.sshConfig.path)
     }
 
-    static func writeManagedHost(config: AppConfig) throws {
+    static func writeManagedHost(config: AppConfig, ochPath: String) throws {
         let sshDir = ConfigPaths.managedSSHConfig.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: sshDir, withIntermediateDirectories: true)
 
@@ -44,7 +44,7 @@ enum SSHConfigManager {
           HostName \(config.targetHost)
           User \(config.targetUser)
           Port \(config.targetPort)
-          ProxyCommand \(config.ochPath) --proxy-command %h %p
+          ProxyCommand \(ochPath) --proxy-command %h %p
           ServerAliveInterval 30
           ServerAliveCountMax 3
 
