@@ -9,9 +9,9 @@ make check            # macOS：含 swift build
 make check-portable   # Linux/WSL：不依赖 Swift 工具链
 ```
 
-Both run shell syntax checks, `shellcheck`, and the smoke tests over `och`,
-`src/och.sh`, `src/och-vpn.sh`, `src/macos-vpnc-route-wrapper.sh`,
-`src/och-sudo-askpass.sh`, and `install.sh`.
+Both run shell syntax checks, `shellcheck`, and the smoke tests over the `och`
+entrypoint, the internal VPN helper scripts, the macOS route wrapper, the sudo
+askpass helper, and `install.sh`.
 
 ## Security Rules
 

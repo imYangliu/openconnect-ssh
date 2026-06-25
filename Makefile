@@ -8,7 +8,6 @@ SHELL_SCRIPTS := \
 	src/och.sh \
 	src/och-setup.sh \
 	src/och-vpn.sh \
-	src/och-vpn-shim.sh \
 	src/macos-vpnc-route-wrapper.sh \
 	src/och-sudo-askpass.sh \
 	install.sh \

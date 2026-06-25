@@ -104,6 +104,26 @@ out="$(run_vpn_fn Darwin "$TEST_TMP/fakes-macos.sh" 'route_line_for_host 1.2.3.4
 [[ "$out" == *"interface=en0"* ]] \
   || fail "macOS route_line_for_host returned: $out"
 
+# --- Shell entrypoint exposes VPN through `och vpn ...` ---
+mkdir -p "$TEST_TMP/bin"
+cat >"$TEST_TMP/bin/ip" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "route" && "$2" == "show" ]]; then
+  echo "default via 10.0.0.1 dev eth0"
+elif [[ "$1" == "route" && "$2" == "get" ]]; then
+  echo "1.2.3.4 via 10.0.0.1 dev eth0 src 10.0.0.5"
+fi
+EOF
+chmod +x "$TEST_TMP/bin/ip"
+
+out="$(HOME="$TEST_TMP/home" OCH_CONFIG_FILE="$TEST_TMP/missing.toml" OCH_SECRETS_FILE="$TEST_TMP/missing-secrets.env" bash "$ROOT_DIR/src/och.sh" vpn help)"
+[[ "$out" == *'och.sh vpn <command>'* ]] \
+  || fail "shell och vpn help should render a single och entrypoint: $out"
+
+out="$(HOME="$TEST_TMP/home" OS_NAME=Linux PATH="$TEST_TMP/bin:$PATH" OCH_CONFIG_FILE="$TEST_TMP/missing.toml" OCH_SECRETS_FILE="$TEST_TMP/missing-secrets.env" bash "$ROOT_DIR/src/och.sh" vpn status)"
+[[ "$out" == *'VPN 未连接'* && "$out" == *'默认路由:'* ]] \
+  || fail "shell och vpn status should dispatch through the single och entrypoint: $out"
+
 # --- vpnc-script missing path is an explicit failure ---
 if bash -c "source '$ROOT_DIR/src/macos-vpnc-route-wrapper.sh'; VPNC_SCRIPT_BASE='$TEST_TMP/missing-vpnc-script'; run_base_script" >/dev/null 2>"$TEST_TMP/vpnc.err"; then
   fail "run_base_script should fail when VPNC_SCRIPT_BASE is missing"
@@ -264,6 +284,22 @@ assert_contains "$ROOT_DIR/Makefile" 'open -n' \
   "make run-gui should use LaunchServices instead of foreground execution"
 assert_not_contains "$ROOT_DIR/Makefile" 'nohup \.build/debug/OCHApp' \
   "make run-gui should not background a bare SwiftPM executable"
+
+# --- Single public och entrypoint guards ---
+assert_contains "$ROOT_DIR/src/och.sh" 'run_vpn_command' \
+  "shell entrypoint should dispatch VPN operations via och vpn"
+assert_not_contains "$ROOT_DIR/install.sh" 'och-vpn-shim|BIN_DIR/och-vpn|/och-vpn' \
+  "installer should not publish a separate och-vpn command"
+assert_not_contains "$ROOT_DIR/Makefile" 'och-vpn-shim|bin/och-vpn' \
+  "Makefile should not package or check the removed och-vpn shim"
+assert_not_contains "$ROOT_DIR/README.md" 'och-vpn' \
+  "README should not document a public och-vpn command"
+assert_not_contains "$ROOT_DIR/docs/usage.md" 'och-vpn' \
+  "usage docs should not document a public och-vpn command"
+assert_not_contains "$ROOT_DIR/docs/configuration.md" 'och-vpn' \
+  "configuration docs should not document a public och-vpn command"
+assert_not_contains "$ROOT_DIR/CONTRIBUTING.md" 'och-vpn' \
+  "contributing docs should not document a public och-vpn command"
 
 # --- SwiftUI localization guards ---
 assert_contains "$ROOT_DIR/Package.swift" 'defaultLocalization: "en"' \

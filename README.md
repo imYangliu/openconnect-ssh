@@ -2,7 +2,7 @@
 
 > **English summary:** OCH is a lightweight OpenConnect + SSH helper for
 > AnyConnect / OpenConnect networks. It ensures VPN reachability on demand
-> before running `ssh`, manages macOS extra routes from strict TOML config, and
+> when `ssh` reaches its ProxyCommand, manages macOS extra routes from strict TOML config, and
 > ships a native SwiftUI GUI on macOS. Targets **macOS (GUI-first)** and
 > **Debian/Linux CLI**. There is no background keepalive daemon.
 
@@ -17,7 +17,7 @@ OCH 是一个轻量的 OpenConnect + SSH 辅助工具，用来在 AnyConnect / O
 ## 功能亮点
 
 - SwiftUI macOS GUI：管理一个 VPN profile、一个托管 SSH Host 和一组额外 CIDR 路由。
-- CLI 包装器：执行 `ssh` 前先检查 VPN，断开时自动尝试连接。
+- Rust 单二进制 CLI：提供 `och proxy-command` 作为 SSH ProxyCommand 后端，以及 `och vpn ...` 管理命令。
 - SSH 自动代理：只管理 `~/.ssh/och.config`，不接管全局 SSH 行为。
 - 严格配置：`config.toml` 是唯一非敏感配置来源，未知字段直接报错。
 - Secret 分离：macOS 使用 Keychain；Linux 使用 `~/.config/och/secrets.env` 且必须 `0600`。
@@ -26,11 +26,12 @@ OCH 是一个轻量的 OpenConnect + SSH 辅助工具，用来在 AnyConnect / O
 ## 仓库结构
 
 ```text
-och                         安装后的 CLI 入口包装器
+och                         开发入口包装器；安装后由 Rust 单二进制接管
 Makefile                    开发、构建、检查入口
 Package.swift               SwiftPM 工程
 Sources/OCHApp/             macOS SwiftUI GUI
-src/                        shell 实现脚本
+rust-cli/                   Rust 单二进制 CLI
+src/                        setup、内部 VPN helper 和 macOS route wrapper
 docs/usage.md               用户使用指南
 docs/configuration.md       配置文件说明
 examples/                   配置示例
@@ -44,6 +45,7 @@ install.sh                  安装脚本
 - `ssh`
 - `sudo`
 - `openconnect`
+- Rust/Cargo（安装和构建 Rust CLI）
 - GUI（仅 macOS）：Swift 6、SwiftPM、SwiftUI
 - macOS：系统自带 `route`、`nc`、Keychain，以及 Homebrew OpenConnect 的 `vpnc-script`
 - Debian/Linux：`ip`
@@ -78,8 +80,7 @@ och vpn connect
 och vpn status
 och vpn verify
 och vpn disconnect
-och och-target
-och --proxy och-target
+ssh och-target
 ```
 
 ## 配置

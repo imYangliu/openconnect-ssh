@@ -8,8 +8,11 @@ mod platform;
 mod vpn;
 
 use config::load_runtime;
-use platform::{exec_command, require_tool};
+use platform::{exec_command, find_tool, require_tool};
 use vpn::Vpn;
+
+const DEFAULT_INSTALL_URL: &str =
+    "https://raw.githubusercontent.com/imyangliu/openconnect-ssh/main/install.sh";
 
 #[derive(Parser, Debug)]
 #[command(name = "och", disable_help_subcommand = true)]
@@ -30,6 +33,8 @@ enum Commands {
         #[command(subcommand)]
         command: Option<VpnCommand>,
     },
+    /// Upgrade OCH by running the official installer again.
+    Update,
     /// Show help.
     Help,
 }
@@ -74,6 +79,7 @@ fn run() -> Result<(), String> {
         Commands::Setup => exec_setup(),
         Commands::ProxyCommand { host, port } => proxy_command(&host, &port),
         Commands::Vpn { command } => run_vpn_command(command.unwrap_or(VpnCommand::Help)),
+        Commands::Update => run_update(),
         Commands::Help => {
             Cli::command()
                 .print_help()
@@ -93,6 +99,29 @@ where
         args[1] = OsString::from("proxy-command");
     }
     args
+}
+
+fn run_update() -> Result<(), String> {
+    require_tool("bash")?;
+
+    let install_url =
+        std::env::var("OCH_INSTALL_URL").unwrap_or_else(|_| DEFAULT_INSTALL_URL.to_string());
+
+    let command_text = if find_tool("curl").is_some() {
+        r#"curl -fsSL "$1" | bash -s -- --update"#
+    } else if find_tool("wget").is_some() {
+        r#"wget -qO- "$1" | bash -s -- --update"#
+    } else {
+        return Err("och update 需要 curl 或 wget".into());
+    };
+
+    exec_command(
+        Command::new("bash")
+            .arg("-c")
+            .arg(command_text)
+            .arg("och-update")
+            .arg(install_url),
+    )
 }
 
 fn proxy_command(host: &str, port: &str) -> Result<(), String> {

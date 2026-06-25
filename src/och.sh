@@ -28,6 +28,7 @@ usage() {
   cat <<EOF
 用法:
   ${OCH_COMMAND_NAME} setup
+  ${OCH_COMMAND_NAME} vpn <connect|disconnect|status|verify|ssh|logs>
   ${OCH_COMMAND_NAME} [ssh 参数...]
   ${OCH_COMMAND_NAME} --proxy [ssh 参数...]
   ${OCH_COMMAND_NAME} --proxy-command <host> <port>
@@ -39,11 +40,14 @@ usage() {
 行为:
   - 若参数里已经包含目标主机，则按原样转交给 ssh
   - 若未提供目标主机，则使用 config.toml 的 [ssh].host；未配置则报错
+  - 使用 vpn 子命令时，会通过 ${OCH_COMMAND_NAME} vpn 管理 VPN 连接
   - 使用 --proxy 时，会额外添加 config.toml 中的反向端口映射
   - 使用 --proxy-command 时，会先确保 VPN 可达，再把 stdio 连接到目标 host:port
   - 使用 setup 时，会引导写入 ${OCH_CONFIG_FILE}、Keychain 和托管 SSH Host
 
 示例:
+  ${OCH_COMMAND_NAME} vpn connect
+  ${OCH_COMMAND_NAME} vpn status
   ${OCH_COMMAND_NAME} och-target
   ${OCH_COMMAND_NAME} --proxy och-target
   ${OCH_COMMAND_NAME} --proxy -N och-target
@@ -225,7 +229,12 @@ ensure_vpn() {
     return 0
   fi
 
-  die "重连后仍无法访问目标，检查日志：${OCH_VPN_HELPER} logs"
+  die "重连后仍无法访问目标，检查日志：${OCH_COMMAND_NAME} vpn logs"
+}
+
+run_vpn_command() {
+  shift
+  env OCH_COMMAND_NAME="${OCH_COMMAND_NAME} vpn" "$OCH_VPN_HELPER" "$@"
 }
 
 proxy_command() {
@@ -245,7 +254,6 @@ proxy_command() {
 }
 
 main() {
-  require_tool ssh
   require_tool "$OCH_VPN_HELPER"
 
   if [[ "${1:-}" == "setup" ]]; then
@@ -254,10 +262,17 @@ main() {
     exec "$setup_script"
   fi
 
+  if [[ "${1:-}" == "vpn" ]]; then
+    run_vpn_command "$@"
+    exit $?
+  fi
+
   if [[ "${1:-}" == "--proxy-command" ]]; then
     shift
     proxy_command "$@"
   fi
+
+  require_tool ssh
 
   strip_wrapper_args "$@"
   local -a ssh_args=("${WRAPPER_SSH_ARGS[@]+"${WRAPPER_SSH_ARGS[@]}"}")

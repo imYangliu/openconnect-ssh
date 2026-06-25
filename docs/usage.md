@@ -1,6 +1,6 @@
 # OCH 用户使用指南
 
-OCH 是一个 OpenConnect + SSH 辅助工具。它不会常驻后台保活，而是在你运行 `och <host>`、`ssh och-target` 或 GUI 连接时检查 VPN；如果 VPN 不可达，就按需尝试连接。
+OCH 是一个 OpenConnect + SSH 辅助工具。它不会常驻后台保活，而是在你运行 `ssh och-target`、GUI 连接或 `och vpn ...` 管理命令时按需检查 VPN；如果 VPN 不可达，就尝试连接。
 
 本文面向 macOS GUI 和 Debian/Linux CLI。配置字段和严格解析规则见 [配置文件说明](configuration.md)。
 
@@ -8,8 +8,8 @@ OCH 是一个 OpenConnect + SSH 辅助工具。它不会常驻后台保活，而
 
 依赖：
 
-- macOS：`openconnect`、`ssh`、`sudo`、`nc`、系统 Keychain；构建 GUI 需要 Swift 6 / SwiftPM。
-- Debian/Linux：`openconnect`、`ssh`、`sudo`、`ip`。
+- macOS：`openconnect`、`ssh`、`sudo`、`nc`、系统 Keychain、Rust/Cargo；构建 GUI 需要 Swift 6 / SwiftPM。
+- Debian/Linux：`openconnect`、`ssh`、`sudo`、`ip`、Rust/Cargo。
 
 安装：
 
@@ -100,17 +100,13 @@ och vpn logs
 och vpn disconnect
 ```
 
-通过 OCH 发起 SSH：
+通过托管 Host 发起 SSH：
 
 ```bash
-och och-target
-och --proxy och-target
-och --proxy -N och-target
-och
-och --proxy
+ssh och-target
 ```
 
-未传目标主机时，`och` 使用 `[ssh].host`。
+这里的 `och-target` 来自 `[ssh].host`，实际目标主机来自 `[ssh].target_host`。
 
 ## SSH 自动代理
 
@@ -134,7 +130,9 @@ macOS 默认使用 OpenConnect 自带的 `vpnc-script`。如果 `[routes].extra`
 
 Debian/Linux 不自动选择第三方分流脚本。需要额外路由时，请使用系统网络策略、服务端下发路由，或在部署层显式配置 OpenConnect 脚本。
 
-`och --proxy` 会追加 SSH 反向端口映射，默认是：
+`[proxy]` 字段保留给 GUI 和旧 shell wrapper 的反向端口映射兼容能力。当前 Rust CLI 主路径是 `ssh och-target`，不会直接提供 `och --proxy` 命令。
+
+旧 wrapper 使用这些字段时，默认映射是：
 
 ```text
 远端 7890 -> 本地 127.0.0.1:7890

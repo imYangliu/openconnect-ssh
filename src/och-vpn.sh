@@ -23,6 +23,7 @@ load_och_config_helper() {
 : "${OCH_SECRETS_FILE:=$HOME/.config/och/secrets.env}"
 : "${OCH_KEYCHAIN_SERVICE:=och}"
 : "${OS_NAME:=$(uname -s)}"
+OCH_COMMAND_NAME="${OCH_COMMAND_NAME:-$(basename "$0")}"
 
 load_och_config_helper
 
@@ -36,7 +37,7 @@ usage() {
 OCH AnyConnect / OpenConnect 单机连接脚本
 
 用法:
-  $(basename "$0") <command>
+  ${OCH_COMMAND_NAME} <command>
 
 命令:
   connect      连接 VPN
@@ -56,10 +57,10 @@ OCH AnyConnect / OpenConnect 单机连接脚本
   LOG_FILE          日志文件路径，默认 ${LOG_FILE}
 
 示例:
-  $(basename "$0") connect
-  $(basename "$0") verify
-  $(basename "$0") ssh
-  $(basename "$0") disconnect
+  ${OCH_COMMAND_NAME} connect
+  ${OCH_COMMAND_NAME} verify
+  ${OCH_COMMAND_NAME} ssh
+  ${OCH_COMMAND_NAME} disconnect
 EOF
 }
 
