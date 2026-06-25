@@ -105,6 +105,12 @@ impl Default for OchConfig {
     }
 }
 
+impl OchConfig {
+    pub fn requires_macos_vpnc_wrapper(&self) -> bool {
+        (self.routes_mode == "extra" && !self.routes_extra.is_empty()) || self.dns_mode == "ignore"
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct TomlConfig {
     vpn: Option<VpnSection>,
@@ -419,7 +425,7 @@ fn unquote(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{load_secret_password, parse_config_str};
+    use super::{load_secret_password, parse_config_str, OchConfig};
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
@@ -582,6 +588,24 @@ language = "zh-Hant"
             .unwrap_err()
             .to_string();
         assert!(error.contains("invalid dns.mode"));
+    }
+
+    #[test]
+    fn detects_when_macos_vpnc_wrapper_features_are_needed() {
+        let mut config = OchConfig::default();
+        assert!(!config.requires_macos_vpnc_wrapper());
+
+        config.routes_mode = "extra".to_string();
+        assert!(!config.requires_macos_vpnc_wrapper());
+
+        config.routes_extra = vec!["10.0.0.0/8".to_string()];
+        assert!(config.requires_macos_vpnc_wrapper());
+
+        config.routes_mode = "openconnect".to_string();
+        assert!(!config.requires_macos_vpnc_wrapper());
+
+        config.dns_mode = "ignore".to_string();
+        assert!(config.requires_macos_vpnc_wrapper());
     }
 
     #[test]

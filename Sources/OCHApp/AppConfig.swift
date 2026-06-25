@@ -220,15 +220,6 @@ enum TOMLConfigFile {
                 seenKeys.insert("routes.mode")
                 continue
             }
-            if section == "dns", pair.key == "mode" {
-                let value = unquote(pair.value)
-                guard let mode = AppDNSMode(rawValue: value) else {
-                    throw TOMLConfigError.invalidValue(lineNumber, "dns.mode", value)
-                }
-                config.dnsMode = mode
-                seenKeys.insert("dns.mode")
-                continue
-            }
             try apply(pair.value, section: section, key: pair.key, lineNumber: lineNumber, to: &config)
             seenKeys.insert("\(section).\(pair.key)")
         }

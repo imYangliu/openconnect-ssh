@@ -20,8 +20,9 @@ struct AppConfigSmoke {
         expect(valid.vpnHost == "vpn.example.com", "vpn host")
         expect(valid.dnsMode == .ignore, "dns mode")
         expect(valid.appLanguage == .zhHans, "language")
-        expect(TOMLConfigFile.render(valid).contains("[dns]"), "rendered dns section")
-        expect(TOMLConfigFile.render(valid).contains("mode = \"ignore\""), "rendered dns mode")
+        let rendered = TOMLConfigFile.render(valid)
+        expect(rendered.contains("[dns]"), "rendered dns section")
+        expect(rendered.contains("mode = \"ignore\""), "rendered dns mode")
 
         do {
             _ = try TOMLConfigFile.parse("""

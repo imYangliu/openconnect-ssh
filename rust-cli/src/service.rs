@@ -546,10 +546,7 @@ impl ServiceVpn {
     }
 
     fn resolve_vpn_script(&self) -> Option<PathBuf> {
-        if self.is_macos()
-            && ((self.config.routes_mode == "extra" && !self.config.routes_extra.is_empty())
-                || self.config.dns_mode == "ignore")
-        {
+        if self.is_macos() && self.config.requires_macos_vpnc_wrapper() {
             route_wrapper_path()
         } else {
             None

@@ -39,7 +39,7 @@ impl Vpn {
             eprintln!("[och] VPN 已恢复");
             Ok(())
         } else {
-            Err(format!("重连后仍无法访问目标，检查日志：och vpn logs"))
+            Err("重连后仍无法访问目标，检查日志：och vpn logs".to_string())
         }
     }
 
@@ -393,12 +393,7 @@ impl Vpn {
     }
 
     fn resolve_vpn_script(&self) -> Option<std::path::PathBuf> {
-        if should_use_route_wrapper(
-            self.is_macos(),
-            &self.runtime.config.routes_mode,
-            !self.runtime.config.routes_extra.is_empty(),
-            &self.runtime.config.dns_mode,
-        ) {
+        if self.is_macos() && self.runtime.config.requires_macos_vpnc_wrapper() {
             route_wrapper_path()
         } else {
             None
@@ -644,15 +639,6 @@ fn sudo_mode_args(mode: SudoMode) -> &'static [&'static str] {
     }
 }
 
-fn should_use_route_wrapper(
-    is_macos: bool,
-    routes_mode: &str,
-    has_extra_routes: bool,
-    dns_mode: &str,
-) -> bool {
-    is_macos && ((routes_mode == "extra" && has_extra_routes) || dns_mode == "ignore")
-}
-
 fn first_line(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes)
         .lines()
@@ -701,7 +687,7 @@ pub fn parse_linux_iface(output: &str) -> String {
 mod tests {
     use super::{
         choose_sudo_mode, parse_linux_iface, parse_macos_iface, parse_macos_route_line,
-        should_use_route_wrapper, sudo_mode_args, SudoMode,
+        sudo_mode_args, SudoMode,
     };
 
     #[test]
@@ -745,29 +731,5 @@ destination: default
         let error = choose_sudo_mode(false, false).expect_err("missing sudo auth");
         assert!(error.contains("sudo -v"));
         assert!(error.contains("SUDO_ASKPASS"));
-    }
-
-    #[test]
-    fn route_wrapper_only_runs_for_macos_extra_mode_with_extra_routes() {
-        assert!(should_use_route_wrapper(true, "extra", true, "openconnect"));
-        assert!(should_use_route_wrapper(
-            true,
-            "openconnect",
-            false,
-            "ignore"
-        ));
-        assert!(!should_use_route_wrapper(
-            true,
-            "openconnect",
-            true,
-            "openconnect"
-        ));
-        assert!(!should_use_route_wrapper(
-            true,
-            "extra",
-            false,
-            "openconnect"
-        ));
-        assert!(!should_use_route_wrapper(false, "extra", true, "ignore"));
     }
 }

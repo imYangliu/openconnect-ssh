@@ -542,11 +542,7 @@ impl TuiState {
     }
 
     fn sync_routes_from_text(&mut self) {
-        self.config.routes_extra = self
-            .extra_routes_text
-            .split(|ch: char| ch == '\n' || ch == ' ' || ch == '\t' || ch == ',')
-            .map(str::trim)
-            .filter(|route| !route.is_empty())
+        self.config.routes_extra = route_entries(&self.extra_routes_text)
             .map(ToString::to_string)
             .collect();
     }
@@ -609,12 +605,7 @@ impl TuiState {
             setup::validate_port(&self.config.target_port)?;
         }
         if self.config.routes_mode == "extra" {
-            for route in self
-                .extra_routes_text
-                .split(|ch: char| ch == '\n' || ch == ' ' || ch == '\t' || ch == ',')
-                .map(str::trim)
-                .filter(|route| !route.is_empty())
-            {
+            for route in route_entries(&self.extra_routes_text) {
                 if !setup::valid_cidr(route) {
                     return Err(format!("CIDR 无效: {route}"));
                 }
@@ -657,15 +648,15 @@ impl TuiState {
 
     fn apply_command_output(&mut self, joined: &str, text: &str) {
         if joined == "vpn status" {
-            self.connection_summary = summarize(&text);
+            self.connection_summary = summarize(text);
         } else if joined == "service status" {
-            self.service_summary = summarize(&text);
+            self.service_summary = summarize(text);
         } else if joined == "vpn logs" {
             self.logs = text.to_string();
         }
         if !text.trim().is_empty() {
             self.logs.push_str("\n$ och ");
-            self.logs.push_str(&joined);
+            self.logs.push_str(joined);
             self.logs.push('\n');
             self.logs.push_str(text.trim_end());
             self.logs.push('\n');
@@ -1307,6 +1298,12 @@ fn require_non_empty(label: &str, value: &str) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+fn route_entries(text: &str) -> impl Iterator<Item = &str> {
+    text.split(['\n', ' ', '\t', ','])
+        .map(str::trim)
+        .filter(|route| !route.is_empty())
 }
 
 fn main_config_includes_managed(path: &PathBuf) -> bool {
