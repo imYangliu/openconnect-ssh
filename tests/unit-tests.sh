@@ -575,6 +575,8 @@ for strings_file in \
     "$strings_file should localize log.saved_config"
   assert_contains "$strings_file" '"error\.toml\.invalid_line"' \
     "$strings_file should localize error.toml.invalid_line"
+  assert_contains "$strings_file" '"error\.toml\.paths_key"' \
+    "$strings_file should localize error.toml.paths_key"
 
   if command -v plutil >/dev/null 2>&1; then
     plutil -lint "$strings_file" >/dev/null

@@ -54,10 +54,13 @@ check-rust:
 	cargo test --manifest-path $(RUST_CLI_MANIFEST)
 
 check-swift-parsing:
-	@tmpbin="$$(mktemp "$${TMPDIR:-/tmp}/och-status-parser.XXXXXX")"; \
-	trap 'rm -f "$$tmpbin"' EXIT; \
-	swiftc Sources/OCHApp/StatusParsing.swift tests/status-parser-smoke.swift -o "$$tmpbin"; \
-	"$$tmpbin"
+	@status_bin="$$(mktemp "$${TMPDIR:-/tmp}/och-status-parser.XXXXXX")"; \
+	config_bin="$$(mktemp "$${TMPDIR:-/tmp}/och-config-parser.XXXXXX")"; \
+	trap 'rm -f "$$status_bin" "$$config_bin"' EXIT; \
+	swiftc Sources/OCHApp/StatusParsing.swift tests/status-parser-smoke.swift -o "$$status_bin"; \
+	"$$status_bin"; \
+	swiftc Sources/OCHApp/AppConfig.swift tests/app-config-smoke-support.swift tests/app-config-smoke.swift -o "$$config_bin"; \
+	"$$config_bin"
 
 build-rust:
 	cargo build --manifest-path $(RUST_CLI_MANIFEST)

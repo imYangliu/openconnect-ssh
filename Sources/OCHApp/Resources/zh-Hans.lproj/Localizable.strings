@@ -198,6 +198,7 @@
 "error.toml.invalid_line" = "第 %d 行 TOML 无效：%@";
 "error.toml.invalid_section" = "第 %d 行 TOML section 无效：%@";
 "error.toml.unknown_section" = "第 %d 行 TOML section 未知：%@";
+"error.toml.paths_key" = "[paths] 由已安装的运行时布局固定；请删除 %@（第 %d 行）";
 "error.toml.unknown_key" = "第 %d 行 TOML 字段未知：[%@].%@";
 "error.toml.invalid_value" = "第 %d 行 %@ 的值无效：%@";
 "error.toml.missing_required" = "缺少必填 TOML 字段：%@";

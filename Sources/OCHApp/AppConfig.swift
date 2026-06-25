@@ -66,6 +66,7 @@ enum TOMLConfigError: LocalizedError {
     case invalidLine(Int, String)
     case invalidSection(Int, String)
     case unknownSection(Int, String)
+    case pathsKey(Int, String)
     case unknownKey(Int, String, String)
     case invalidValue(Int, String, String)
     case missingRequired(String)
@@ -82,6 +83,8 @@ enum TOMLConfigError: LocalizedError {
             return L10n.tr("error.toml.invalid_section", language: language, line, value)
         case .unknownSection(let line, let value):
             return L10n.tr("error.toml.unknown_section", language: language, line, value)
+        case .pathsKey(let line, let key):
+            return L10n.tr("error.toml.paths_key", language: language, key, line)
         case .unknownKey(let line, let section, let key):
             return L10n.tr("error.toml.unknown_key", language: language, line, section, key)
         case .invalidValue(let line, let key, let value):
@@ -277,6 +280,8 @@ enum TOMLConfigFile {
                 throw TOMLConfigError.invalidValue(lineNumber, "app.language", value)
             }
             config.appLanguage = language
+        case ("paths", _):
+            throw TOMLConfigError.pathsKey(lineNumber, key)
         default:
             throw TOMLConfigError.unknownKey(lineNumber, section, key)
         }

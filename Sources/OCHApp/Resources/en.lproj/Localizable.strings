@@ -198,6 +198,7 @@
 "error.toml.invalid_line" = "Invalid TOML at line %d: %@";
 "error.toml.invalid_section" = "Invalid TOML section at line %d: %@";
 "error.toml.unknown_section" = "Unknown TOML section at line %d: %@";
+"error.toml.paths_key" = "[paths] is fixed by the installed runtime layout; remove %@ at line %d";
 "error.toml.unknown_key" = "Unknown TOML key at line %d: [%@].%@";
 "error.toml.invalid_value" = "Invalid value at line %d for %@: %@";
 "error.toml.missing_required" = "Missing required TOML key: %@";
