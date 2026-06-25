@@ -2,6 +2,7 @@
 .idea/
 .vscode/
 .build/
+rust-cli/target/
 .env
 secrets.env
 *.log
