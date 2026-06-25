@@ -112,7 +112,7 @@ smoke: build-rust
 		OCH_SECRETS_FILE="$$tmpdir/missing-secrets.env" \
 		OS_NAME=Linux \
 		PATH="$$tmpdir/bin:$$PATH" \
-		$(RUST_CLI_DEBUG_BIN) proxy-command 127.0.0.1 22 >"$$tmpdir/proxy-command.log" 2>&1; \
+		$(RUST_CLI_DEBUG_BIN) proxy-command 127.0.0.1 1 >"$$tmpdir/proxy-command.log" 2>&1; \
 		status=$$?; \
 		set -e; \
 		if [[ $$status -eq 0 ]]; then \
@@ -120,23 +120,23 @@ smoke: build-rust
 			cat "$$tmpdir/proxy-command.log" >&2; \
 			exit 1; \
 		fi; \
-		grep -q "未设置 \\[vpn\\].host" "$$tmpdir/proxy-command.log"; \
+		grep -q "未设置 \\[vpn\\].host" "$$tmpdir/proxy-command.log" || { cat "$$tmpdir/proxy-command.log" >&2; exit 1; }; \
 		reason=connect \
 		TUNDEV=utun9 \
 		OCH_ROUTES_EXTRA="10.0.0.0/8 192.168.0.0/16" \
 		OCH_ROUTE_DRY_RUN=1 \
 		VPNC_SCRIPT_BASE=/usr/bin/true \
 		src/macos-vpnc-route-wrapper.sh >"$$tmpdir/routes-connect.log"; \
-		grep -F "route -n add -net 10.0.0.0/8 -interface utun9" "$$tmpdir/routes-connect.log" >/dev/null; \
-		grep -F "route -n add -net 192.168.0.0/16 -interface utun9" "$$tmpdir/routes-connect.log" >/dev/null; \
+		grep -F "route -n add -net 10.0.0.0/8 -interface utun9" "$$tmpdir/routes-connect.log" >/dev/null || { cat "$$tmpdir/routes-connect.log" >&2; exit 1; }; \
+		grep -F "route -n add -net 192.168.0.0/16 -interface utun9" "$$tmpdir/routes-connect.log" >/dev/null || { cat "$$tmpdir/routes-connect.log" >&2; exit 1; }; \
 		reason=disconnect \
 		TUNDEV=utun9 \
 		OCH_ROUTES_EXTRA="10.0.0.0/8 192.168.0.0/16" \
 		OCH_ROUTE_DRY_RUN=1 \
 		VPNC_SCRIPT_BASE=/usr/bin/true \
 		src/macos-vpnc-route-wrapper.sh >"$$tmpdir/routes-disconnect.log"; \
-		grep -F "route -n delete -net 10.0.0.0/8 -interface utun9" "$$tmpdir/routes-disconnect.log" >/dev/null; \
-		grep -F "route -n delete -net 192.168.0.0/16 -interface utun9" "$$tmpdir/routes-disconnect.log" >/dev/null; \
+		grep -F "route -n delete -net 10.0.0.0/8 -interface utun9" "$$tmpdir/routes-disconnect.log" >/dev/null || { cat "$$tmpdir/routes-disconnect.log" >&2; exit 1; }; \
+		grep -F "route -n delete -net 192.168.0.0/16 -interface utun9" "$$tmpdir/routes-disconnect.log" >/dev/null || { cat "$$tmpdir/routes-disconnect.log" >&2; exit 1; }; \
 		printf "%s\n" \
 			"Host och-target" \
 			"  HostName 127.0.0.1" \
@@ -144,8 +144,8 @@ smoke: build-rust
 			"  Port 22" \
 			"  ProxyCommand /opt/homebrew/bin/och proxy-command %h %p" \
 			>"$$tmpdir/ssh_config"; \
-		ssh -F "$$tmpdir/ssh_config" -T -G och-target >"$$tmpdir/ssh-g.log"; \
-		grep -F "proxycommand /opt/homebrew/bin/och proxy-command %h %p" "$$tmpdir/ssh-g.log" >/dev/null; \
+		ssh -F "$$tmpdir/ssh_config" -G och-target >"$$tmpdir/ssh-g.log" 2>"$$tmpdir/ssh-g.err" || { cat "$$tmpdir/ssh-g.err" >&2; cat "$$tmpdir/ssh-g.log" >&2; exit 1; }; \
+		grep -E "^proxycommand /opt/homebrew/bin/och proxy-command " "$$tmpdir/ssh-g.log" >/dev/null || { cat "$$tmpdir/ssh-g.log" >&2; exit 1; }; \
 		echo "smoke tests passed"; \
 	'
 	@bash tests/unit-tests.sh

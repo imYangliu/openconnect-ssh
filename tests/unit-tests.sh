@@ -314,7 +314,7 @@ out="$(OCH_VPN_HOST=vpn.example.com OCH_VPN_USER=alice VPN_PASSWORD=secret OCH_S
   || fail "setup rendered TOML should include config but not password: $out"
 OS_NAME=Linux OCH_SECRETS_FILE="$TEST_TMP/generated-secrets.env" \
   bash -c "source '$ROOT_DIR/src/och-setup.sh'; och_setup_write_secrets_password secret"
-[[ "$(stat -f '%Lp' "$TEST_TMP/generated-secrets.env" 2>/dev/null || stat -c '%a' "$TEST_TMP/generated-secrets.env")" == "600" ]] \
+[[ "$(stat -c '%a' "$TEST_TMP/generated-secrets.env" 2>/dev/null || stat -f '%Lp' "$TEST_TMP/generated-secrets.env")" == "600" ]] \
   || fail "generated secrets.env should have 0600 permissions"
 assert_contains "$TEST_TMP/generated-secrets.env" '^VPN_PASSWORD="secret"$' \
   "Linux setup should save VPN_PASSWORD to secrets.env"
