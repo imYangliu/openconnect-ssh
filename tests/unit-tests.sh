@@ -47,6 +47,9 @@ port = "2222"
 [routes]
 extra = ["10.0.0.0/8", "192.168.0.0/16"]
 
+[dns]
+mode = "ignore"
+
 [proxy]
 local_host = "127.0.0.1"
 local_port = "7897"
@@ -185,10 +188,67 @@ fi
 grep -q 'missing executable vpnc-script' "$TEST_TMP/vpnc.err" \
   || fail "missing vpnc-script error was unclear: $(<"$TEST_TMP/vpnc.err")"
 
+cat >"$TEST_TMP/base-vpnc-script" <<'EOF'
+#!/usr/bin/env bash
+printf '%s|%s|%s\n' "${INTERNAL_IP4_DNS-unset}" "${CISCO_DEF_DOMAIN-unset}" "${CISCO_SPLIT_DNS-unset}"
+EOF
+chmod +x "$TEST_TMP/base-vpnc-script"
+out="$(INTERNAL_IP4_DNS=10.0.0.53 CISCO_DEF_DOMAIN=vpn.example.com CISCO_SPLIT_DNS=corp.example.com bash -c "source '$ROOT_DIR/src/macos-vpnc-route-wrapper.sh'; VPNC_SCRIPT_BASE='$TEST_TMP/base-vpnc-script'; OCH_DNS_MODE=ignore; run_base_script")"
+[[ "$out" == "unset|unset|unset" ]] \
+  || fail "DNS ignore mode should strip pushed DNS environment before vpnc-script: $out"
+out="$(INTERNAL_IP4_DNS=10.0.0.53 CISCO_DEF_DOMAIN=vpn.example.com CISCO_SPLIT_DNS=corp.example.com bash -c "source '$ROOT_DIR/src/macos-vpnc-route-wrapper.sh'; VPNC_SCRIPT_BASE='$TEST_TMP/base-vpnc-script'; OCH_DNS_MODE=openconnect; run_base_script")"
+[[ "$out" == "10.0.0.53|vpn.example.com|corp.example.com" ]] \
+  || fail "OpenConnect DNS mode should preserve DNS environment for vpnc-script: $out"
+
 # --- TOML config parsing ---
-out="$(bash -c "source '$ROOT_DIR/src/och-config.sh'; load_och_toml_file '$TEST_TMP/config.toml'; printf '%s|%s|%s|%s|%s|%s' \"\$OCH_VPN_HOST\" \"\$OCH_SSH_HOST\" \"\$OCH_TARGET_HOST\" \"\$OCH_ROUTES_EXTRA\" \"\$OCH_PROXY_LOCAL_PORT\" \"\$OCH_APP_LANGUAGE\"")"
-[[ "$out" == "vpn.example.com|och-target|10.0.0.10|10.0.0.0/8 192.168.0.0/16|7897|system" ]] \
+out="$(bash -c "source '$ROOT_DIR/src/och-config.sh'; load_och_toml_file '$TEST_TMP/config.toml'; printf '%s|%s|%s|%s|%s|%s|%s|%s|%s' \"\$OCH_VPN_HOST\" \"\$OCH_SSH_HOST\" \"\$OCH_TARGET_HOST\" \"\$OCH_ROUTES_MODE\" \"\$OCH_ROUTES_EXTRA\" \"\$OCH_DNS_MODE\" \"\$OCH_PROXY_ENABLED\" \"\$OCH_PROXY_LOCAL_PORT\" \"\$OCH_APP_LANGUAGE\"")"
+[[ "$out" == "vpn.example.com|och-target|10.0.0.10|extra|10.0.0.0/8 192.168.0.0/16|ignore|1|7897|system" ]] \
   || fail "TOML config parse returned: $out"
+
+cat >"$TEST_TMP/openconnect-routes.toml" <<'EOF'
+[vpn]
+host = "vpn.example.com"
+user = "vpn-user"
+
+[routes]
+mode = "openconnect"
+extra = ["10.0.0.0/8"]
+EOF
+out="$(bash -c "source '$ROOT_DIR/src/och-config.sh'; load_och_toml_file '$TEST_TMP/openconnect-routes.toml' 0; printf '%s|%s' \"\$OCH_ROUTES_MODE\" \"\$OCH_ROUTES_EXTRA\"")"
+[[ "$out" == "openconnect|10.0.0.0/8" ]] \
+  || fail "routes.mode should preserve explicit openconnect mode with inactive extra routes: $out"
+
+if bash -c "source '$ROOT_DIR/src/och-config.sh'; load_och_toml_file <(printf '%s\n' '[routes]' 'mode = \"direct\"') 0" >/dev/null 2>"$TEST_TMP/bad-route-mode.err"; then
+  fail "load_och_toml_file should reject invalid routes.mode"
+fi
+grep -q 'invalid routes.mode' "$TEST_TMP/bad-route-mode.err" \
+  || fail "invalid routes.mode error was unclear: $(<"$TEST_TMP/bad-route-mode.err")"
+
+if bash -c "source '$ROOT_DIR/src/och-config.sh'; load_och_toml_file <(printf '%s\n' '[dns]' 'mode = \"system\"') 0" >/dev/null 2>"$TEST_TMP/bad-dns-mode.err"; then
+  fail "load_och_toml_file should reject invalid dns.mode"
+fi
+grep -q 'invalid dns.mode' "$TEST_TMP/bad-dns-mode.err" \
+  || fail "invalid dns.mode error was unclear: $(<"$TEST_TMP/bad-dns-mode.err")"
+
+out="$(bash -c "source '$ROOT_DIR/src/och-config.sh'; load_och_toml_file <(printf '%s\n' '[vpn]' 'host = \"vpn.example.com\"' 'user = \"vpn-user\"' '[app]' 'language = \"zh-Hant\"') 0; printf '%s|%s' \"\$OCH_APP_LANGUAGE\" \"\$OCH_PROXY_ENABLED\"")"
+[[ "$out" == "zh-Hant|0" ]] \
+  || fail "app.language zh-Hant and omitted [proxy] should parse cleanly: $out"
+
+if bash -c "source '$ROOT_DIR/src/och-config.sh'; load_och_toml_file <(printf '%s\n' '[app]' 'language = \"fr\"') 0" >/dev/null 2>"$TEST_TMP/bad-language.err"; then
+  fail "load_och_toml_file should reject invalid app.language"
+fi
+grep -q 'invalid app.language' "$TEST_TMP/bad-language.err" \
+  || fail "invalid app.language error was unclear: $(<"$TEST_TMP/bad-language.err")"
+
+out="$(OS_NAME=Darwin OCH_ROUTES_MODE=openconnect OCH_ROUTES_EXTRA='10.0.0.0/8' OCH_CONFIG_FILE="$TEST_TMP/missing.toml" OCH_SECRETS_FILE="$TEST_TMP/missing-secrets.env" bash -c "source '$ROOT_DIR/src/och-vpn.sh'; resolve_vpn_script")"
+[[ -z "$out" ]] \
+  || fail "resolve_vpn_script should not enable wrapper in openconnect route mode: $out"
+out="$(OS_NAME=Darwin OCH_ROUTES_MODE=extra OCH_ROUTES_EXTRA='10.0.0.0/8' OCH_CONFIG_FILE="$TEST_TMP/missing.toml" OCH_SECRETS_FILE="$TEST_TMP/missing-secrets.env" bash -c "source '$ROOT_DIR/src/och-vpn.sh'; resolve_vpn_script")"
+[[ "$out" == *"macos-vpnc-route-wrapper.sh" ]] \
+  || fail "resolve_vpn_script should enable wrapper in extra route mode: $out"
+out="$(OS_NAME=Darwin OCH_ROUTES_MODE=openconnect OCH_DNS_MODE=ignore OCH_CONFIG_FILE="$TEST_TMP/missing.toml" OCH_SECRETS_FILE="$TEST_TMP/missing-secrets.env" bash -c "source '$ROOT_DIR/src/och-vpn.sh'; resolve_vpn_script")"
+[[ "$out" == *"macos-vpnc-route-wrapper.sh" ]] \
+  || fail "resolve_vpn_script should enable wrapper when DNS mode ignores pushed DNS: $out"
 
 # --- Strict TOML rejects runtime path keys and unknown keys ---
 cat >"$TEST_TMP/config.toml" <<'EOF'
@@ -296,6 +356,50 @@ out="$(HOME="$TEST_TMP/home" OCH_MAIN_SSH_CONFIG="$TEST_TMP/home/.ssh/config" OC
 [[ "$out" == $'och-app|app.internal\t'"${USER:-tester}"$'\t22' ]] \
   || fail "setup ssh mapping returned: $out"
 
+# --- Setup helper validates SSH config before writing ---
+mkdir -p "$TEST_TMP/fake-ssh/bin"
+cat >"$TEST_TMP/fake-ssh/bin/ssh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$SSH_LOG"
+if [[ "${SSH_FAIL:-0}" == "1" ]]; then
+  echo "bad ssh config" >&2
+  exit 255
+fi
+exit 0
+EOF
+chmod +x "$TEST_TMP/fake-ssh/bin/ssh"
+
+SSH_LOG="$TEST_TMP/ssh-validation.log" \
+PATH="$TEST_TMP/fake-ssh/bin:$PATH" \
+OCH_MANAGED_SSH_CONFIG="$TEST_TMP/generated-och.config" \
+OCH_SSH_HOST=och-good \
+OCH_TARGET_HOST=target.example.com \
+OCH_TARGET_SSH_USER=alice \
+OCH_TARGET_PORT=22 \
+  bash -c "source '$ROOT_DIR/src/och-setup.sh'; och_setup_write_managed_ssh_config"
+assert_contains "$TEST_TMP/generated-och.config" '^Host och-good$' \
+  "managed SSH config should be written after ssh validation succeeds"
+assert_contains "$TEST_TMP/generated-och.config" 'ProxyCommand ".*och" proxy-command %h %p' \
+  "managed SSH ProxyCommand helper path should be quoted"
+assert_contains "$TEST_TMP/ssh-validation.log" '.*-F .* -G och-good' \
+  "managed SSH config should be validated through ssh -F <temp> -G <host>"
+
+printf '%s\n' 'keep-existing' >"$TEST_TMP/generated-och.config"
+if SSH_FAIL=1 SSH_LOG="$TEST_TMP/ssh-validation-fail.log" \
+PATH="$TEST_TMP/fake-ssh/bin:$PATH" \
+OCH_MANAGED_SSH_CONFIG="$TEST_TMP/generated-och.config" \
+OCH_SSH_HOST=och-bad \
+OCH_TARGET_HOST=target.example.com \
+OCH_TARGET_SSH_USER=alice \
+OCH_TARGET_PORT=22 \
+  bash -c "source '$ROOT_DIR/src/och-setup.sh'; och_setup_write_managed_ssh_config" 2>"$TEST_TMP/ssh-validation-fail.err"; then
+  fail "managed SSH config write should fail when ssh validation fails"
+fi
+[[ "$(cat "$TEST_TMP/generated-och.config")" == "keep-existing" ]] \
+  || fail "failed SSH validation should not overwrite existing managed config"
+grep -q 'generated SSH config failed validation' "$TEST_TMP/ssh-validation-fail.err" \
+  || fail "SSH validation failure should explain why write was blocked"
+
 # --- Setup helper route defaults and de-duplication ---
 out="$(bash -c "source '$ROOT_DIR/src/och-setup.sh'; printf '%s|%s|%s' \"\$(och_setup_default_cidr_for_host 10.2.3.4)\" \"\$(och_setup_append_route '10.0.0.0/8' '10.2.3.4/32')\" \"\$(och_setup_append_route '10.2.3.4/32' '10.2.3.4/32')\"")"
 [[ "$out" == "10.2.3.4/32|10.0.0.0/8 10.2.3.4/32|10.2.3.4/32" ]] \
@@ -310,14 +414,23 @@ printf '%s\n' "$*" >>"$SECURITY_LOG"
 EOF
 chmod +x "$TEST_TMP/fake-security"
 out="$(OCH_VPN_HOST=vpn.example.com OCH_VPN_USER=alice VPN_PASSWORD=secret OCH_SSH_HOST=och-app OCH_TARGET_HOST=10.2.3.4 OCH_TARGET_SSH_USER=alice OCH_TARGET_PORT=22 bash -c "source '$ROOT_DIR/src/och-setup.sh'; och_setup_render_toml '10.2.3.4/32'")"
-[[ "$out" == *'host = "vpn.example.com"'* && "$out" != *secret* ]] \
+[[ "$out" == *'host = "vpn.example.com"'* && "$out" == *'mode = "extra"'* && "$out" != *secret* ]] \
   || fail "setup rendered TOML should include config but not password: $out"
-OS_NAME=Linux OCH_SECRETS_FILE="$TEST_TMP/generated-secrets.env" \
-  bash -c "source '$ROOT_DIR/src/och-setup.sh'; och_setup_write_secrets_password secret"
-[[ "$(stat -c '%a' "$TEST_TMP/generated-secrets.env" 2>/dev/null || stat -f '%Lp' "$TEST_TMP/generated-secrets.env")" == "600" ]] \
-  || fail "generated secrets.env should have 0600 permissions"
-assert_contains "$TEST_TMP/generated-secrets.env" '^VPN_PASSWORD="secret"$' \
-  "Linux setup should save VPN_PASSWORD to secrets.env"
+out="$(OCH_VPN_HOST=vpn.example.com OCH_VPN_USER=alice bash -c "source '$ROOT_DIR/src/och-setup.sh'; och_setup_render_toml ''")"
+[[ "$out" == *'mode = "openconnect"'* && "$out" == *'extra = []'* && "$out" != *'[proxy]'* ]] \
+  || fail "setup rendered TOML should default to openconnect mode without routes: $out"
+out="$(OCH_PROXY_ENABLED=1 OCH_PROXY_LOCAL_PORT=7897 OCH_VPN_HOST=vpn.example.com OCH_VPN_USER=alice bash -c "source '$ROOT_DIR/src/och-setup.sh'; och_setup_render_toml ''")"
+[[ "$out" == *'[proxy]'* && "$out" == *'local_port = "7897"'* ]] \
+  || fail "setup rendered TOML should include proxy only when enabled: $out"
+for os_name in Linux Darwin; do
+  generated_secret="$TEST_TMP/generated-${os_name}-secrets.env"
+  OS_NAME="$os_name" OCH_SECRETS_FILE="$generated_secret" \
+    bash -c "source '$ROOT_DIR/src/och-setup.sh'; och_setup_write_secrets_password secret"
+  [[ "$(stat -c '%a' "$generated_secret" 2>/dev/null || stat -f '%Lp' "$generated_secret")" == "600" ]] \
+    || fail "$os_name generated secrets.env should have 0600 permissions"
+  assert_contains "$generated_secret" '^VPN_PASSWORD="secret"$' \
+    "$os_name setup should save VPN_PASSWORD to secrets.env"
+done
 
 # --- SwiftUI layout regression guards ---
 assert_contains "$ROOT_DIR/Sources/OCHApp/UILayout.swift" 'static let windowMinWidth' \
@@ -400,12 +513,43 @@ assert_not_contains "$ROOT_DIR/Sources/OCHApp/ContentView.swift" 'FormSection\("
   "form sections should render translated strings from Bundle.module, not localization keys"
 assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'var appLanguage: AppLanguage = \.system' \
   "AppConfig should carry the GUI language preference"
+assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'var routeMode: AppRouteMode = \.openconnect' \
+  "AppConfig should default to OpenConnect route mode"
+assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'var dnsMode: AppDNSMode = \.openconnect' \
+  "AppConfig should default to OpenConnect DNS behavior"
+assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'var proxyEnabled = false' \
+  "AppConfig should default proxy settings to disabled"
+assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'mode = .*routeMode\.rawValue' \
+  "rendered config.toml should persist routes.mode"
+assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'mode = .*dnsMode\.rawValue' \
+  "rendered config.toml should persist dns.mode"
+assert_contains "$ROOT_DIR/Sources/OCHApp/ContentView.swift" 'Picker\(tr\("field\.route_mode"\)' \
+  "Routes pane should expose a route mode picker"
+assert_contains "$ROOT_DIR/Sources/OCHApp/ContentView.swift" 'Picker\(tr\("field\.dns_mode"\)' \
+  "Routes pane should expose a DNS mode picker"
+assert_contains "$ROOT_DIR/Sources/OCHApp/ContentView.swift" '\.disabled\(model\.config\.routeMode == \.openconnect\)' \
+  "Extra routes editor should be inactive in OpenConnect route mode"
+# shellcheck disable=SC2016
+assert_contains "$ROOT_DIR/Sources/OCHApp/ContentView.swift" 'Toggle\(isOn: \$model\.config\.proxyEnabled\)' \
+  "Routes pane should expose a proxy enable toggle"
+assert_contains "$ROOT_DIR/Sources/OCHApp/ContentView.swift" '\.disabled\(!model\.config\.proxyEnabled\)' \
+  "Proxy fields should be disabled while proxy is off"
+assert_contains "$ROOT_DIR/Sources/OCHApp/ContentView.swift" 'error: model\.config\.proxyEnabled' \
+  "Proxy validation should only run while proxy is enabled"
+assert_not_contains "$ROOT_DIR/Sources/OCHApp/SetupWizardView.swift" 'routeCIDR = SetupCIDRHelper\.defaultCIDR|State\(initialValue: SetupCIDRHelper\.defaultCIDR' \
+  "Setup wizard should not default target /32 routes anymore"
 assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" '\[app\]' \
   "rendered config.toml should include an app section"
 assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'language = .*appLanguage\.rawValue' \
   "rendered config.toml should persist app.language"
 assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'case \("app", "language"\)' \
   "TOML parser should read app.language"
+assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'config\.proxyEnabled = true' \
+  "TOML parser should enable proxy when a [proxy] section is present"
+assert_contains "$ROOT_DIR/Sources/OCHApp/Localization.swift" 'case zhHant = "zh-Hant"' \
+  "Swift localization should support Traditional Chinese"
+assert_contains "$ROOT_DIR/Sources/OCHApp/Localization.swift" 'code\.lowercased\(\)' \
+  "Swift localization should tolerate SwiftPM lower-cased .lproj paths"
 required_keys_block="$(awk '/private static let requiredKeys = \[/,/\]/' "$ROOT_DIR/Sources/OCHApp/AppConfig.swift")"
 assert_text_not_contains "$required_keys_block" 'ssh\.target_host|ssh\.host' \
   "GUI TOML required keys should allow VPN-only setup without SSH fields"
@@ -413,6 +557,15 @@ assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'var hasManagedSSHCon
   "AppConfig should centralize complete managed SSH detection"
 assert_contains "$ROOT_DIR/Sources/OCHApp/AppModel.swift" 'if config\.hasManagedSSHConfig \{' \
   "GUI save/setup should only write managed SSH config when SSH fields are complete"
+assert_contains "$ROOT_DIR/Sources/OCHApp/SSHConfigManager.swift" 'validateSSHConfig\(contents: contents, host: config\.defaultHost\)' \
+  "GUI should validate generated managed SSH config before writing it"
+assert_contains "$ROOT_DIR/Sources/OCHApp/SSHConfigManager.swift" 'arguments: \["-F", tempConfig\.path, "-G", host\]' \
+  "GUI SSH validation should delegate parsing to OpenSSH"
+assert_contains "$ROOT_DIR/Sources/OCHApp/SSHConfigManager.swift" 'quoteSSHConfigValue\(ochPath\)' \
+  "GUI managed SSH ProxyCommand should quote helper paths"
+# shellcheck disable=SC2016
+assert_contains "$ROOT_DIR/src/och-setup.sh" 'och_setup_validate_ssh_config "\$tmp_config" "\$OCH_SSH_HOST"' \
+  "setup helper should validate managed SSH config before writing it"
 assert_contains "$ROOT_DIR/Sources/OCHApp/SetupWizardView.swift" 'button\.skip_ssh' \
   "Setup wizard should expose a Skip SSH action on the VPN step"
 assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" '\[paths\]' \
@@ -425,6 +578,14 @@ assert_not_contains "$ROOT_DIR/Sources/OCHApp/AppModel.swift" 'helper_path_fallb
   "GUI should not log configured-helper fallback messages"
 assert_contains "$ROOT_DIR/Sources/OCHApp/AppModel.swift" '"VPN_PASSWORD"' \
   "GUI connect should pass the current password through VPN_PASSWORD"
+assert_contains "$ROOT_DIR/Sources/OCHApp/AppModel.swift" 'runtimeLogText' \
+  "GUI should keep auto-refreshed runtime logs separate from operation history"
+assert_not_contains "$ROOT_DIR/Sources/OCHApp/AppModel.swift" 'func refreshRuntimeLogTail[^{]*\{[^}]*append\(' \
+  "GUI runtime log auto-refresh should not append to operation history"
+assert_contains "$ROOT_DIR/Sources/OCHApp/ContentView.swift" 'model\.refreshStatus\(\)' \
+  "GUI should keep manual status refresh actions"
+assert_contains "$ROOT_DIR/Sources/OCHApp/ContentView.swift" 'onReceive\(Self\.autoRefreshTimer\)' \
+  "GUI should install a page-aware auto-refresh timer"
 assert_not_contains "$ROOT_DIR/Sources/OCHApp/HelperPaths.swift" 'configuredPath|repositoryCandidates|homebrewRelativePath' \
   "GUI helper resolver should ignore configured, repository, and Homebrew paths"
 assert_contains "$ROOT_DIR/Sources/OCHApp/HelperPaths.swift" 'Contents/Resources/' \
@@ -436,9 +597,14 @@ assert_not_contains "$ROOT_DIR/src/och-vpn.sh" 'vpn-slice|uvx|VPN_ROUTES|MACOS_E
 
 for strings_file in \
   "$ROOT_DIR/Sources/OCHApp/Resources/en.lproj/Localizable.strings" \
-  "$ROOT_DIR/Sources/OCHApp/Resources/zh-Hans.lproj/Localizable.strings"; do
+  "$ROOT_DIR/Sources/OCHApp/Resources/zh-Hans.lproj/Localizable.strings" \
+  "$ROOT_DIR/Sources/OCHApp/Resources/zh-Hant.lproj/Localizable.strings"; do
   assert_contains "$strings_file" '"pane\.connection"' \
     "$strings_file should localize pane.connection"
+  assert_contains "$strings_file" '"language\.zh_hant"' \
+    "$strings_file should localize language.zh_hant"
+  assert_contains "$strings_file" '"toggle\.enable_proxy"' \
+    "$strings_file should localize toggle.enable_proxy"
   assert_contains "$strings_file" '"button\.apply_toml"' \
     "$strings_file should localize button.apply_toml"
   assert_contains "$strings_file" '"button\.skip_ssh"' \
@@ -447,6 +613,10 @@ for strings_file in \
     "$strings_file should localize log.saved_config"
   assert_contains "$strings_file" '"error\.toml\.invalid_line"' \
     "$strings_file should localize error.toml.invalid_line"
+  assert_contains "$strings_file" '"error\.toml\.paths_key"' \
+    "$strings_file should localize error.toml.paths_key"
+  assert_contains "$strings_file" '"status\.auto_refresh\.on"' \
+    "$strings_file should localize status.auto_refresh.on"
 
   if command -v plutil >/dev/null 2>&1; then
     plutil -lint "$strings_file" >/dev/null

@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -25,6 +25,10 @@ pub enum ConfigError {
     UnknownKey(String),
     #[error("invalid app.language: {0}")]
     InvalidLanguage(String),
+    #[error("invalid routes.mode: {0}")]
+    InvalidRouteMode(String),
+    #[error("invalid dns.mode: {0}")]
+    InvalidDnsMode(String),
     #[error("missing required config value: {0}")]
     MissingRequired(&'static str),
     #[error("cannot read secrets file {path}: {source}")]
@@ -53,14 +57,14 @@ pub struct Runtime {
     pub target: RuntimeTarget,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeTarget {
     pub host: Option<String>,
     pub port: Option<String>,
     pub user: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OchConfig {
     pub vpn_host: String,
     pub vpn_user: String,
@@ -69,7 +73,10 @@ pub struct OchConfig {
     pub target_host: String,
     pub target_user: String,
     pub target_port: String,
+    pub routes_mode: String,
     pub routes_extra: Vec<String>,
+    pub dns_mode: String,
+    pub proxy_enabled: bool,
     pub proxy_local_host: String,
     pub proxy_local_port: String,
     pub proxy_remote_port: String,
@@ -86,7 +93,10 @@ impl Default for OchConfig {
             target_host: String::new(),
             target_user: std::env::var("USER").unwrap_or_default(),
             target_port: "22".to_string(),
+            routes_mode: "openconnect".to_string(),
             routes_extra: Vec::new(),
+            dns_mode: "openconnect".to_string(),
+            proxy_enabled: false,
             proxy_local_host: "127.0.0.1".to_string(),
             proxy_local_port: "7890".to_string(),
             proxy_remote_port: "7890".to_string(),
@@ -95,11 +105,18 @@ impl Default for OchConfig {
     }
 }
 
+impl OchConfig {
+    pub fn requires_macos_vpnc_wrapper(&self) -> bool {
+        (self.routes_mode == "extra" && !self.routes_extra.is_empty()) || self.dns_mode == "ignore"
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct TomlConfig {
     vpn: Option<VpnSection>,
     ssh: Option<SshSection>,
     routes: Option<RoutesSection>,
+    dns: Option<DnsSection>,
     proxy: Option<ProxySection>,
     app: Option<AppSection>,
     _paths: Option<toml::Table>,
@@ -122,7 +139,13 @@ struct SshSection {
 
 #[derive(Debug, Deserialize)]
 struct RoutesSection {
+    mode: Option<String>,
     extra: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DnsSection {
+    mode: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -229,8 +252,25 @@ pub fn parse_config_str(
     }
     if let Some(routes) = parsed.routes {
         config.routes_extra = routes.extra.unwrap_or_default();
+        if let Some(mode) = routes.mode {
+            match mode.as_str() {
+                "openconnect" | "extra" => config.routes_mode = mode,
+                _ => return Err(ConfigError::InvalidRouteMode(mode)),
+            }
+        } else if !config.routes_extra.is_empty() {
+            config.routes_mode = "extra".to_string();
+        }
+    }
+    if let Some(dns) = parsed.dns {
+        if let Some(mode) = dns.mode {
+            match mode.as_str() {
+                "openconnect" | "ignore" => config.dns_mode = mode,
+                _ => return Err(ConfigError::InvalidDnsMode(mode)),
+            }
+        }
     }
     if let Some(proxy) = parsed.proxy {
+        config.proxy_enabled = true;
         config.proxy_local_host = proxy.local_host.unwrap_or_else(|| "127.0.0.1".to_string());
         config.proxy_local_port = proxy.local_port.unwrap_or_else(|| "7890".to_string());
         config.proxy_remote_port = proxy.remote_port.unwrap_or_else(|| "7890".to_string());
@@ -238,7 +278,7 @@ pub fn parse_config_str(
     if let Some(app) = parsed.app {
         if let Some(language) = app.language {
             match language.as_str() {
-                "system" | "en" | "zh-Hans" => config.app_language = language,
+                "system" | "en" | "zh-Hans" | "zh-Hant" => config.app_language = language,
                 _ => return Err(ConfigError::InvalidLanguage(language)),
             }
         }
@@ -267,7 +307,7 @@ fn validate_keys(value: &toml::Value) -> Result<(), ConfigError> {
     let Some(table) = value.as_table() else {
         return Ok(());
     };
-    let allowed_sections = BTreeSet::from(["vpn", "ssh", "routes", "proxy", "app", "paths"]);
+    let allowed_sections = BTreeSet::from(["vpn", "ssh", "routes", "dns", "proxy", "app", "paths"]);
     for (section, section_value) in table {
         if !allowed_sections.contains(section.as_str()) {
             return Err(ConfigError::UnknownSection(section.clone()));
@@ -276,7 +316,8 @@ fn validate_keys(value: &toml::Value) -> Result<(), ConfigError> {
         let allowed_keys = match section.as_str() {
             "vpn" => BTreeSet::from(["host", "user", "auth_group"]),
             "ssh" => BTreeSet::from(["host", "target_host", "user", "port"]),
-            "routes" => BTreeSet::from(["extra"]),
+            "routes" => BTreeSet::from(["mode", "extra"]),
+            "dns" => BTreeSet::from(["mode"]),
             "proxy" => BTreeSet::from(["local_host", "local_port", "remote_port"]),
             "app" => BTreeSet::from(["language"]),
             "paths" => BTreeSet::new(),
@@ -384,7 +425,7 @@ fn unquote(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{load_secret_password, parse_config_str};
+    use super::{load_secret_password, parse_config_str, OchConfig};
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
@@ -404,7 +445,11 @@ user = "deploy"
 port = "2222"
 
 [routes]
+mode = "extra"
 extra = ["10.0.0.0/8", "192.168.0.0/16"]
+
+[dns]
+mode = "ignore"
 
 [proxy]
 local_host = "127.0.0.1"
@@ -421,9 +466,154 @@ language = "zh-Hans"
 
         assert_eq!(config.vpn_host, "vpn.example.com");
         assert_eq!(config.ssh_host, "och-target");
+        assert_eq!(config.routes_mode, "extra");
         assert_eq!(config.routes_extra, ["10.0.0.0/8", "192.168.0.0/16"]);
+        assert_eq!(config.dns_mode, "ignore");
+        assert!(config.proxy_enabled);
         assert_eq!(config.proxy_local_port, "7897");
         assert_eq!(config.app_language, "zh-Hans");
+    }
+
+    #[test]
+    fn defaults_to_openconnect_route_mode_without_extra_routes() {
+        let config = parse_config_str(
+            r#"
+[vpn]
+host = "vpn.example.com"
+user = "alice"
+
+[routes]
+extra = []
+"#,
+            true,
+            "test",
+        )
+        .unwrap();
+
+        assert_eq!(config.routes_mode, "openconnect");
+        assert!(config.routes_extra.is_empty());
+    }
+
+    #[test]
+    fn legacy_extra_routes_enable_extra_route_mode() {
+        let config = parse_config_str(
+            r#"
+[vpn]
+host = "vpn.example.com"
+user = "alice"
+
+[routes]
+extra = ["10.0.0.0/8"]
+"#,
+            true,
+            "test",
+        )
+        .unwrap();
+
+        assert_eq!(config.routes_mode, "extra");
+        assert_eq!(config.routes_extra, ["10.0.0.0/8"]);
+    }
+
+    #[test]
+    fn explicit_openconnect_route_mode_keeps_extra_routes_inactive() {
+        let config = parse_config_str(
+            r#"
+[vpn]
+host = "vpn.example.com"
+user = "alice"
+
+[routes]
+mode = "openconnect"
+extra = ["10.0.0.0/8"]
+"#,
+            true,
+            "test",
+        )
+        .unwrap();
+
+        assert_eq!(config.routes_mode, "openconnect");
+        assert_eq!(config.routes_extra, ["10.0.0.0/8"]);
+    }
+
+    #[test]
+    fn proxy_section_is_optional() {
+        let config = parse_config_str(
+            r#"
+[vpn]
+host = "vpn.example.com"
+user = "alice"
+"#,
+            true,
+            "test",
+        )
+        .unwrap();
+
+        assert!(!config.proxy_enabled);
+        assert_eq!(config.proxy_local_host, "127.0.0.1");
+        assert_eq!(config.proxy_local_port, "7890");
+        assert_eq!(config.proxy_remote_port, "7890");
+        assert_eq!(config.dns_mode, "openconnect");
+    }
+
+    #[test]
+    fn accepts_traditional_chinese_language() {
+        let config = parse_config_str(
+            r#"
+[vpn]
+host = "vpn.example.com"
+user = "alice"
+
+[app]
+language = "zh-Hant"
+"#,
+            true,
+            "test",
+        )
+        .unwrap();
+
+        assert_eq!(config.app_language, "zh-Hant");
+    }
+
+    #[test]
+    fn rejects_unknown_route_mode() {
+        let error = parse_config_str("[routes]\nmode = \"direct\"\n", false, "test")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("invalid routes.mode"));
+    }
+
+    #[test]
+    fn rejects_unknown_dns_mode() {
+        let error = parse_config_str("[dns]\nmode = \"system\"\n", false, "test")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("invalid dns.mode"));
+    }
+
+    #[test]
+    fn detects_when_macos_vpnc_wrapper_features_are_needed() {
+        let mut config = OchConfig::default();
+        assert!(!config.requires_macos_vpnc_wrapper());
+
+        config.routes_mode = "extra".to_string();
+        assert!(!config.requires_macos_vpnc_wrapper());
+
+        config.routes_extra = vec!["10.0.0.0/8".to_string()];
+        assert!(config.requires_macos_vpnc_wrapper());
+
+        config.routes_mode = "openconnect".to_string();
+        assert!(!config.requires_macos_vpnc_wrapper());
+
+        config.dns_mode = "ignore".to_string();
+        assert!(config.requires_macos_vpnc_wrapper());
+    }
+
+    #[test]
+    fn rejects_unknown_language() {
+        let error = parse_config_str("[app]\nlanguage = \"fr\"\n", false, "test")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("invalid app.language"));
     }
 
     #[test]

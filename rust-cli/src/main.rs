@@ -4,7 +4,11 @@ use std::path::PathBuf;
 use std::process::Command;
 
 mod config;
+mod doctor;
 mod platform;
+mod service;
+mod setup;
+mod tui;
 mod vpn;
 
 use config::load_runtime;
@@ -26,12 +30,21 @@ struct Cli {
 enum Commands {
     /// Run the interactive setup helper.
     Setup,
+    /// Open the full terminal user interface.
+    Tui,
+    /// Diagnose local OCH configuration and runtime prerequisites.
+    Doctor,
     /// SSH ProxyCommand entrypoint: ensure VPN, then connect stdio to host:port.
     ProxyCommand { host: String, port: String },
     /// Manage the VPN connection.
     Vpn {
         #[command(subcommand)]
         command: Option<VpnCommand>,
+    },
+    /// Manage the macOS privileged service.
+    Service {
+        #[command(subcommand)]
+        command: Option<ServiceCommand>,
     },
     /// Upgrade OCH by running the official installer again.
     Update,
@@ -50,9 +63,23 @@ enum VpnCommand {
     Help,
 }
 
+#[derive(Subcommand, Debug, Clone, Copy)]
+enum ServiceCommand {
+    Install,
+    Uninstall,
+    Status,
+    #[command(hide = true)]
+    Exec,
+    #[command(hide = true)]
+    Run,
+    Help,
+}
+
 fn main() {
     if let Err(error) = run() {
-        eprintln!("Error: {error}");
+        if error != doctor::FAILURE_EXIT {
+            eprintln!("Error: {error}");
+        }
         std::process::exit(1);
     }
 }
@@ -76,15 +103,34 @@ fn run() -> Result<(), String> {
     };
 
     match cli.command.unwrap_or(Commands::Help) {
-        Commands::Setup => exec_setup(),
+        Commands::Setup => setup::run(),
+        Commands::Tui => tui::run(),
+        Commands::Doctor => doctor::run(),
         Commands::ProxyCommand { host, port } => proxy_command(&host, &port),
         Commands::Vpn { command } => run_vpn_command(command.unwrap_or(VpnCommand::Help)),
+        Commands::Service { command } => {
+            run_service_command(command.unwrap_or(ServiceCommand::Help))
+        }
         Commands::Update => run_update(),
         Commands::Help => {
             Cli::command()
                 .print_help()
                 .map_err(|error| error.to_string())?;
             println!();
+            Ok(())
+        }
+    }
+}
+
+fn run_service_command(command: ServiceCommand) -> Result<(), String> {
+    match command {
+        ServiceCommand::Install => service::install(),
+        ServiceCommand::Uninstall => service::uninstall(),
+        ServiceCommand::Status => service::status(),
+        ServiceCommand::Exec => service::exec_from_stdin(),
+        ServiceCommand::Run => service::run_daemon(),
+        ServiceCommand::Help => {
+            print_service_help();
             Ok(())
         }
     }
@@ -184,18 +230,17 @@ OCH VPN commands
     );
 }
 
-fn exec_setup() -> Result<(), String> {
-    let helper = helper_path("och-setup.sh")?;
-    require_tool_path(&helper)?;
-    exec_command(&mut Command::new(helper))
-}
+fn print_service_help() {
+    println!(
+        "\
+OCH service commands
 
-fn require_tool_path(path: &PathBuf) -> Result<(), String> {
-    if path.is_file() {
-        Ok(())
-    } else {
-        Err(format!("缺少可执行文件: {}", path.display()))
-    }
+用法:
+  och service install
+  och service uninstall
+  och service status
+"
+    );
 }
 
 fn helper_path(name: &str) -> Result<PathBuf, String> {

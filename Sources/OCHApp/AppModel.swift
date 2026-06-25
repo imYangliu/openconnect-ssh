@@ -1,30 +1,51 @@
 import Foundation
 import Security
+import OCHXPCClient
 
 @MainActor
 final class AppModel: ObservableObject {
     @Published var config = AppConfig()
     @Published var vpnPassword = ""
-    @Published var savePassword = true
+    @Published var savePassword = false {
+        didSet {
+            guard savePassword, !oldValue, vpnPassword.isEmpty else {
+                return
+            }
+            loadSavedPasswordFromKeychain()
+        }
+    }
     @Published var configText = ""
     @Published var logText = ""
-    @Published var isBusy = false
+    @Published var runtimeLogText = ""
+    @Published var isConnectionBusy = false
+    @Published var isServiceBusy = false
     @Published var includeInstalled = SSHConfigManager.mainConfigIncludesManagedFile()
     @Published var showingSetupWizard = false
+    @Published var connectionRunState: ConnectionRunState = .unknown
+    @Published var lastVPNStatusOutput = ""
+    @Published var serviceStatus = ServiceStatus()
     @Published var connectionStatusText = ""
     @Published var connectionStatusIsError = false
     @Published var sshStatusText = ""
     @Published var sshStatusIsError = false
+    @Published var serviceStatusText = ""
+    @Published var serviceStatusIsError = false
     @Published var configStatusText = ""
     @Published var configStatusIsError = false
     @Published var advancedStatusText = ""
     @Published var advancedStatusIsError = false
 
     private var lastSyncedConfigText = ""
+    private let runtimeLogURL = URL(fileURLWithPath: "/tmp/och-openconnect-\(NSUserName()).log")
 
     init() {
         loadConfiguration()
         showingSetupWizard = needsSetup
+        refreshServiceStatus(silent: true)
+    }
+
+    var isBusy: Bool {
+        isConnectionBusy || isServiceBusy
     }
 
     var needsSetup: Bool {
@@ -54,12 +75,8 @@ final class AppModel: ObservableObject {
             refreshConfigTextFromSettings(log: false)
         }
 
-        do {
-            if let password = try KeychainStore.readPassword(account: config.vpnUser) {
-                vpnPassword = password
-            }
-        } catch {
-            append(L10n.tr("log.keychain_read_failed", language: config.appLanguage, keychainReadDescription(error)))
+        if savePassword {
+            loadSavedPasswordFromKeychain()
         }
     }
 
@@ -158,6 +175,16 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func loadSavedPasswordFromKeychain() {
+        do {
+            if let password = try KeychainStore.readPassword(account: config.vpnUser) {
+                vpnPassword = password
+            }
+        } catch {
+            append(L10n.tr("log.keychain_read_failed", language: config.appLanguage, keychainReadDescription(error)))
+        }
+    }
+
     func installSSHInclude() {
         do {
             guard config.hasManagedSSHConfig else {
@@ -177,6 +204,35 @@ final class AppModel: ObservableObject {
             append(message)
             setSSHStatus(message, isError: true)
         }
+    }
+
+    func refreshServiceStatus(silent: Bool = false) {
+        guard !isServiceBusy else {
+            return
+        }
+
+        isServiceBusy = true
+        Task {
+            let status = await PrivilegedService.status()
+            serviceStatus = status
+            setServiceStatus(serviceSummaryText, isError: false)
+            if !silent {
+                append(status.rawOutput)
+            }
+            isServiceBusy = false
+        }
+    }
+
+    func installService() {
+        runServiceRegistration(operation: .install)
+    }
+
+    func uninstallService() {
+        runServiceRegistration(operation: .uninstall)
+    }
+
+    func openServiceSettings() {
+        PrivilegedService.openLoginItemsSettings()
     }
 
     func connect() {
@@ -218,52 +274,248 @@ final class AppModel: ObservableObject {
         runVPNCommand(["status"])
     }
 
-    private func runVPNCommand(_ arguments: [String], vpnPassword: String? = nil) {
-        let helperPaths: ResolvedHelperPaths
+    func refreshRuntimeLogTail() {
         do {
-            helperPaths = try HelperPathResolver.resolveAll()
+            let raw = try String(contentsOf: runtimeLogURL, encoding: .utf8)
+            runtimeLogText = tail(raw, lines: 160)
         } catch {
-            let message = localizedDescription(error)
-            append(message)
-            setConnectionStatus(message, isError: true)
+            runtimeLogText = L10n.tr("status.runtime_log.unavailable", language: config.appLanguage, runtimeLogURL.path)
+        }
+    }
+
+    private func runVPNCommand(_ arguments: [String], vpnPassword: String? = nil) {
+        guard !isConnectionBusy else {
             return
         }
 
-        isBusy = true
-        let executable = helperPaths.och.path
-        let commandArguments = ["vpn"] + arguments
-        let environment = commandEnvironment(askpassPath: helperPaths.askpass.path, vpnPassword: vpnPassword)
-        append("$ \(executable) \(commandArguments.joined(separator: " "))")
+        isConnectionBusy = true
+        let action = arguments.first ?? "status"
+        append("$ xpc://\(OCHXPCClient.machServiceName) \(action)")
         setConnectionStatus(L10n.tr("status.connection.running", language: config.appLanguage, arguments.joined(separator: " ")))
 
         Task {
-            let result: Result<CommandResult, Error> = await Task.detached {
+            let result: Result<PrivilegedServiceResponse, Error> = await Task.detached { [config] in
                 do {
-                    return .success(try CommandRunner.run(
-                        executable: executable,
-                        arguments: commandArguments,
-                        environment: environment,
-                        stdin: nil
-                    ))
+                    let request = PrivilegedServiceRequest(action: action, appConfig: config, vpnPassword: vpnPassword)
+                    let requestJSON = try JSONEncoder().encode(request)
+                    let responseJSON = try await OCHXPCClient().perform(requestJSON: requestJSON)
+                    return .success(try JSONDecoder().decode(PrivilegedServiceResponse.self, from: responseJSON))
                 } catch {
                     return .failure(error)
                 }
             }.value
 
             switch result {
-            case .success(let commandResult):
-                append(commandResult.output.trimmingCharacters(in: .whitespacesAndNewlines))
-                append(L10n.tr("log.exit_status", language: config.appLanguage, commandResult.status))
+            case .success(let serviceResponse):
+                let output = serviceResponse.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                append(output)
+                if let error = serviceResponse.error, !error.isEmpty {
+                    append(error)
+                }
+                updateConnectionState(from: output, isError: !serviceResponse.ok)
                 setConnectionStatus(
-                    L10n.tr("status.connection.completed", language: config.appLanguage, commandResult.status),
-                    isError: commandResult.status != 0
+                    connectionStatusMessage(for: arguments, output: output, status: serviceResponse.ok ? 0 : 1),
+                    isError: !serviceResponse.ok
                 )
             case .failure(let error):
-                let message = L10n.tr("log.command_failed", language: config.appLanguage, localizedDescription(error))
+                let message = L10n.tr("log.xpc_fallback", language: config.appLanguage, localizedDescription(error))
                 append(message)
-                setConnectionStatus(message, isError: true)
+                await runVPNCommandFallback(arguments, vpnPassword: vpnPassword)
             }
-            isBusy = false
+            isConnectionBusy = false
+            if commandShouldRefreshStatus(arguments) {
+                refreshStatus()
+            }
+        }
+    }
+
+    private enum ServiceOperation {
+        case status
+        case install
+        case uninstall
+    }
+
+    private func runServiceRegistration(operation: ServiceOperation) {
+        guard !isServiceBusy else {
+            return
+        }
+
+        isServiceBusy = true
+        let label = operation == .install ? "register" : "unregister"
+        append("$ SMAppService.daemon(\(PrivilegedService.plistName)).\(label)")
+        setServiceStatus(L10n.tr("status.service.running_command", language: config.appLanguage, label))
+
+        Task {
+            let result: Result<Void, Error> = await Task.detached {
+                do {
+                    switch operation {
+                    case .install:
+                        try PrivilegedService.register()
+                    case .uninstall:
+                        try PrivilegedService.unregister()
+                    case .status:
+                        break
+                    }
+                    return .success(())
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+
+            switch result {
+            case .success:
+                setServiceStatus(serviceOperationSuccessText(operation))
+            case .failure(let error):
+                let message = L10n.tr("log.command_failed", language: config.appLanguage, localizedDescription(error))
+                serviceStatus.lastError = message
+                append(message)
+                setServiceStatus(message, isError: true)
+            }
+            isServiceBusy = false
+            refreshServiceStatus(silent: true)
+        }
+    }
+
+    private func runVPNCommandFallback(_ arguments: [String], vpnPassword: String? = nil) async {
+        let helperPaths: ResolvedHelperPaths
+        do {
+            helperPaths = try HelperPathResolver.resolveAll()
+        } catch {
+            let message = localizedDescription(error)
+            append(message)
+            connectionRunState = .error
+            setConnectionStatus(message, isError: true)
+            return
+        }
+
+        let executable = helperPaths.och.path
+        let commandArguments = ["vpn"] + arguments
+        let environment = commandEnvironment(askpassPath: helperPaths.askpass.path, vpnPassword: vpnPassword)
+
+        let result: Result<CommandResult, Error> = await Task.detached {
+            do {
+                return .success(try CommandRunner.run(
+                    executable: executable,
+                    arguments: commandArguments,
+                    environment: environment,
+                    stdin: nil
+                ))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+
+        switch result {
+        case .success(let commandResult):
+            let output = commandResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            append(output)
+            append(L10n.tr("log.exit_status", language: config.appLanguage, commandResult.status))
+            updateConnectionState(from: output, isError: commandResult.status != 0)
+            setConnectionStatus(
+                connectionStatusMessage(for: arguments, output: output, status: commandResult.status),
+                isError: commandResult.status != 0
+            )
+        case .failure(let error):
+            let message = L10n.tr("log.command_failed", language: config.appLanguage, localizedDescription(error))
+            append(message)
+            connectionRunState = .error
+            setConnectionStatus(message, isError: true)
+        }
+    }
+
+    private func updateConnectionState(from output: String, isError: Bool) {
+        let parsed = StatusParsing.parseConnectionRunState(output, isError: isError)
+        if parsed != .unknown {
+            connectionRunState = parsed
+        }
+        if output.contains("VPN 已连接") || output.contains("VPN 未连接") {
+            lastVPNStatusOutput = output
+        }
+    }
+
+    private func commandShouldRefreshStatus(_ arguments: [String]) -> Bool {
+        arguments.first == "connect" || arguments.first == "disconnect"
+    }
+
+    private func connectionStatusMessage(for arguments: [String], output: String, status: Int32) -> String {
+        if arguments.first == "status", !output.isEmpty {
+            return output
+        }
+        if commandShouldRefreshStatus(arguments), status == 0 {
+            return L10n.tr("status.connection.refreshing_after_action", language: config.appLanguage)
+        }
+        return L10n.tr("status.connection.completed", language: config.appLanguage, status)
+    }
+
+    var serviceSummaryText: String {
+        if serviceStatus.isAvailable {
+            return L10n.tr("status.service.available", language: config.appLanguage)
+        }
+        if serviceStatus.registrationStatus == "requiresApproval" {
+            return L10n.tr("status.service.requires_approval", language: config.appLanguage)
+        }
+        if serviceStatus.registrationStatus == "notRegistered" || serviceStatus.registrationStatus == "notFound" {
+            return L10n.tr("status.service.not_installed", language: config.appLanguage)
+        }
+        if serviceStatus.installed == false {
+            return L10n.tr("status.service.not_installed", language: config.appLanguage)
+        }
+        if serviceStatus.running == false {
+            return L10n.tr("status.service.not_running", language: config.appLanguage)
+        }
+        if serviceStatus.xpcReachable == false {
+            return L10n.tr("status.service.xpc_unreachable", language: config.appLanguage)
+        }
+        if serviceStatus.socketReachable == false {
+            return L10n.tr("status.service.socket_unreachable", language: config.appLanguage)
+        }
+        return L10n.tr("status.service.unknown", language: config.appLanguage)
+    }
+
+    var serviceFallbackText: String {
+        serviceStatus.isAvailable
+            ? L10n.tr("status.service.using_service", language: config.appLanguage)
+            : L10n.tr("status.service.using_fallback", language: config.appLanguage)
+    }
+
+    var connectionSummaryText: String {
+        switch connectionRunState {
+        case .connected:
+            return L10n.tr("status.connection.connected", language: config.appLanguage)
+        case .disconnected:
+            return L10n.tr("status.connection.disconnected", language: config.appLanguage)
+        case .error:
+            return L10n.tr("status.connection.error", language: config.appLanguage)
+        case .unknown:
+            return L10n.tr("status.connection.unknown", language: config.appLanguage)
+        }
+    }
+
+    var traySystemImage: String {
+        if isBusy {
+            return "arrow.triangle.2.circlepath"
+        }
+        if connectionRunState == .error || serviceStatusIsError || connectionStatusIsError {
+            return "exclamationmark.triangle.fill"
+        }
+        switch connectionRunState {
+        case .connected:
+            return "lock.shield.fill"
+        case .disconnected:
+            return "lock.slash"
+        case .unknown, .error:
+            return "network"
+        }
+    }
+
+    private func serviceOperationSuccessText(_ operation: ServiceOperation) -> String {
+        switch operation {
+        case .status:
+            return serviceSummaryText
+        case .install:
+            return L10n.tr("status.service.install_success", language: config.appLanguage)
+        case .uninstall:
+            return L10n.tr("status.service.uninstall_success", language: config.appLanguage)
         }
     }
 
@@ -276,6 +528,11 @@ final class AppModel: ObservableObject {
             environment["VPN_PASSWORD"] = vpnPassword
         }
         return environment
+    }
+
+    private func tail(_ text: String, lines count: Int) -> String {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        return lines.suffix(count).joined(separator: "\n")
     }
 
     private func synchronizeSettingsForSave() throws {
@@ -291,6 +548,12 @@ final class AppModel: ObservableObject {
         }
         if let helperError = error as? HelperPathError {
             return L10n.tr("error.helper_not_found", language: config.appLanguage, helperError.kind.displayName)
+        }
+        if let sshConfigError = error as? SSHConfigError {
+            switch sshConfigError {
+            case .validationFailed(let details):
+                return L10n.tr("error.ssh_config.validation_failed", language: config.appLanguage, details)
+            }
         }
         return error.localizedDescription
     }
@@ -319,6 +582,11 @@ final class AppModel: ObservableObject {
     private func setSSHStatus(_ message: String, isError: Bool = false) {
         sshStatusText = message
         sshStatusIsError = isError
+    }
+
+    private func setServiceStatus(_ message: String, isError: Bool = false) {
+        serviceStatusText = message
+        serviceStatusIsError = isError
     }
 
     private func setConfigStatus(_ message: String, isError: Bool = false) {

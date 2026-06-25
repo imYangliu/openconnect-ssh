@@ -1,22 +1,67 @@
 "language.system" = "Follow System";
 "language.english" = "English";
-"language.zh_hans" = "中文";
+"language.zh_hans" = "简体中文";
+"language.zh_hant" = "繁體中文";
+"route_mode.openconnect" = "OpenConnect default";
+"route_mode.extra" = "Extra routes";
+"dns_mode.openconnect" = "Use OpenConnect DNS";
+"dns_mode.ignore" = "Ignore pushed DNS";
 
+"value.yes" = "Yes";
+"value.no" = "No";
+"value.unknown" = "Unknown";
+
+"pane.overview" = "Overview";
 "pane.connection" = "Connection";
 "pane.ssh" = "SSH";
 "pane.routes" = "Routes & Proxy";
+"pane.service" = "Service";
 "pane.advanced" = "Advanced";
 "pane.config" = "TOML";
 "pane.logs" = "Logs";
 
+"overview.title" = "OCH Connection Overview";
+"overview.subtitle" = "Control the VPN connection, macOS service mode, and SSH access from one place.";
+"card.connection.title" = "VPN";
+"card.service.title" = "Service Mode";
+"card.ssh_include.title" = "SSH Include";
+"card.config.title" = "Configuration";
+
 "status.ssh_include.installed" = "SSH Include installed";
 "status.ssh_include.missing" = "SSH Include missing";
 "status.ssh_include.missing_help" = "OCH writes a managed SSH host, but your ~/.ssh/config does not include it yet.";
+"status.ssh_include.ready_help" = "The managed SSH host will be read by OpenSSH.";
 "status.ssh_include.install_success" = "Installed SSH Include: %@";
+"status.config.unsaved" = "TOML has unsaved edits";
+"status.config.saved_or_synced" = "Configuration is synced";
 "status.connection.saving" = "Saving configuration before connecting...";
 "status.connection.save_failed" = "Could not save the configuration. Check the TOML error before connecting.";
 "status.connection.running" = "Running och vpn %@...";
 "status.connection.completed" = "Command finished with exit status %d.";
+"status.connection.refreshing_after_action" = "Action finished. Refreshing the real VPN status...";
+"status.connection.connected" = "VPN connected";
+"status.connection.disconnected" = "VPN disconnected";
+"status.connection.error" = "VPN status error";
+"status.connection.unknown" = "VPN status unknown";
+"status.connection.refresh_hint" = "Refresh status to read the current VPN and route state.";
+"status.auto_refresh.on" = "Auto-refresh on";
+"status.runtime_log.unavailable" = "Runtime log not available yet: %@";
+"status.service.running_command" = "Updating macOS service %@...";
+"status.service.available" = "Service enabled and reachable";
+"status.service.available_short" = "Service ready";
+"status.service.needs_attention_short" = "Service needs attention";
+"status.service.not_installed" = "Service not installed";
+"status.service.not_running" = "Service not running";
+"status.service.socket_unreachable" = "Service socket unreachable";
+"status.service.xpc_unreachable" = "Service XPC endpoint unreachable";
+"status.service.requires_approval" = "Service requires approval in System Settings";
+"status.service.unknown" = "Service status unknown";
+"status.service.using_service" = "VPN actions will use the local root XPC helper.";
+"status.service.using_fallback" = "When the signed helper is unavailable, debug and CLI-only builds may fall back to sudo mode.";
+"status.service.install_success" = "Service installed.";
+"status.service.uninstall_success" = "Service uninstalled.";
+"status.service.command_failed" = "Service command failed.";
+"status.service.no_status_yet" = "Service status has not been read yet.";
 "status.saved_config" = "Saved configuration: %@";
 "status.toml.unsaved_changes" = "TOML has unsaved edits. Applying or syncing may overwrite the current settings.";
 "accessibility.selected" = "Selected";
@@ -24,7 +69,10 @@
 "section.vpn" = "VPN";
 "section.managed_ssh_host" = "Managed SSH Host";
 "section.extra_routes" = "Extra Routes";
+"section.dns" = "DNS";
 "section.proxy" = "Proxy";
+"section.service_mode" = "macOS Service Mode";
+"section.service_raw_status" = "Raw Service Status";
 "section.language" = "Language";
 
 "field.gateway" = "Gateway";
@@ -39,6 +87,15 @@
 "field.remote_port" = "Remote port";
 "field.language" = "Language";
 "field.route_cidr" = "Route CIDR";
+"field.route_mode" = "Route mode";
+"field.dns_mode" = "DNS mode";
+"field.service_installed" = "Installed";
+"field.service_running" = "Running";
+"field.registration_status" = "Registration";
+"field.xpc_reachable" = "XPC reachable";
+"field.socket_exists" = "Socket exists";
+"field.socket_reachable" = "Socket reachable";
+"field.socket_path" = "Socket";
 
 "placeholder.gateway" = "vpn.example.com";
 "placeholder.vpn_user" = "your VPN username";
@@ -56,11 +113,16 @@
 "help.password" = "Used for VPN login; saved to Keychain only when enabled.";
 "help.host" = "Alias OCH will add to your SSH config.";
 "help.hostname" = "The real SSH target reached through the VPN.";
-"help.route_cidr" = "Optional route to add for the target, such as one host with /32.";
-"help.extra_routes" = "Enter one CIDR per line, separated by spaces, commas, or new lines.";
+"help.route_mode" = "OpenConnect default leaves routing to OpenConnect. Extra routes adds selected CIDRs to the VPN tunnel.";
+"help.route_cidr" = "Optional extra VPN route, such as one host with /32. Leave blank to keep OpenConnect defaults.";
+"help.extra_routes" = "Enter CIDRs to add to the VPN tunnel, one per line or separated by spaces/commas. These are not direct bypass routes.";
+"help.extra_routes_inactive" = "These CIDRs are preserved but inactive while route mode is OpenConnect default.";
+"help.dns_mode" = "Use OpenConnect DNS to allow the VPN script to update system DNS. Ignore pushed DNS keeps your existing DNS settings on macOS.";
 "help.local_host" = "Local address for the SSH proxy listener.";
+"help.proxy_optional" = "Optional compatibility settings for reverse port mapping. Leave disabled unless you need the legacy proxy behavior.";
 
 "toggle.save_vpn_password" = "Save VPN password in Keychain";
+"toggle.enable_proxy" = "Enable Proxy";
 
 "setup.title" = "OCH Setup";
 "setup.step.vpn" = "1 / 2 VPN";
@@ -85,6 +147,12 @@
 "button.connect" = "Connect";
 "button.disconnect" = "Disconnect";
 "button.status" = "Status";
+"button.refresh_status" = "Refresh Status";
+"button.refresh_all" = "Refresh All";
+"button.refresh_service" = "Refresh Service";
+"button.install_service" = "Install Service";
+"button.uninstall_service" = "Uninstall Service";
+"button.open_system_settings" = "Open System Settings";
 "button.install_include" = "Install Include";
 "button.remove_keychain_password" = "Remove Keychain Password";
 "button.reload" = "Reload";
@@ -104,8 +172,16 @@
 "confirm.reload.message" = "Reloading reads config.toml from disk and replaces the current fields.";
 "confirm.sync_toml.title" = "Replace TOML edits?";
 "confirm.sync_toml.message" = "Sync From Settings will replace the current TOML text with values from the form.";
+"confirm.service_install.title" = "Install macOS service?";
+"confirm.service_install.message" = "This registers OCH's signed macOS background helper. Approval is handled by System Settings and OCH does not save your admin password.";
+"confirm.service_uninstall.title" = "Uninstall macOS service?";
+"confirm.service_uninstall.message" = "This unregisters the OCH background helper. Debug and CLI-only builds may fall back to sudo mode afterward.";
 
 "label.log" = "Log";
+"label.operation_history" = "Operation History";
+"label.runtime_log" = "Runtime Log";
+"tray.open_window" = "Open OCH";
+"tray.quit" = "Quit OCH";
 
 "log.loaded_config" = "Loaded config: %@";
 "log.load_failed" = "Load failed: %@";
@@ -123,6 +199,7 @@
 "log.vpn_user_required" = "VPN user is required";
 "log.vpn_password_required" = "VPN password is required. Enter it in the password field or save it to Keychain.";
 "log.exit_status" = "Exit status: %d";
+"log.xpc_fallback" = "XPC helper unavailable; using debug fallback: %@";
 "log.command_failed" = "Command failed: %@";
 "log.setup_completed" = "Setup completed. Saved config: %@";
 "log.setup_failed" = "Setup save failed: %@";
@@ -130,9 +207,11 @@
 "error.toml.invalid_line" = "Invalid TOML at line %d: %@";
 "error.toml.invalid_section" = "Invalid TOML section at line %d: %@";
 "error.toml.unknown_section" = "Unknown TOML section at line %d: %@";
+"error.toml.paths_key" = "[paths] is fixed by the installed runtime layout; remove %@ at line %d";
 "error.toml.unknown_key" = "Unknown TOML key at line %d: [%@].%@";
 "error.toml.invalid_value" = "Invalid value at line %d for %@: %@";
 "error.toml.missing_required" = "Missing required TOML key: %@";
+"error.ssh_config.validation_failed" = "Generated SSH config did not pass ssh validation: %@";
 
 "validation.vpn_gateway_required" = "VPN gateway is required.";
 "validation.vpn_user_required" = "VPN user is required.";

@@ -1,8 +1,10 @@
 use crate::config::Runtime;
 use crate::platform::{
-    command_output, exec_command, find_tool, is_macos, read_trimmed, require_tool, tail_lines,
+    command_output, discover_openconnect_pid, exec_command, find_tool, is_macos,
+    process_looks_like_openconnect, read_trimmed, require_tool, tail_lines,
 };
 use crate::route_wrapper_path;
+use crate::service;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -37,11 +39,30 @@ impl Vpn {
             eprintln!("[och] VPN 已恢复");
             Ok(())
         } else {
-            Err(format!("重连后仍无法访问目标，检查日志：och vpn logs"))
+            Err("重连后仍无法访问目标，检查日志：och vpn logs".to_string())
         }
     }
 
     pub fn connect(&self) -> Result<(), String> {
+        self.validate_vpn_config()?;
+        if service::service_should_be_used(&self.runtime.os_name)
+            && service::service_socket_exists()
+        {
+            let password = self.read_vpn_password()?;
+            if let Some(response) = service::try_vpn_action(
+                &self.runtime,
+                service::ACTION_CONNECT,
+                Some(password.clone()),
+            ) {
+                return service::response_to_result(response);
+            }
+            return self.connect_with_sudo(Some(password));
+        }
+
+        self.connect_with_sudo(None)
+    }
+
+    fn connect_with_sudo(&self, password_override: Option<String>) -> Result<(), String> {
         require_tool("sudo")?;
         require_tool(&self.openconnect_bin())?;
         if self.is_macos() {
@@ -50,18 +71,7 @@ impl Vpn {
         } else {
             require_tool("ip")?;
         }
-        if self.runtime.config.vpn_host.is_empty() {
-            return Err(format!(
-                "未设置 [vpn].host，请在 {} 中配置",
-                self.runtime.config_file.display()
-            ));
-        }
-        if self.runtime.config.vpn_user.is_empty() {
-            return Err(format!(
-                "未设置 [vpn].user，请在 {} 中配置",
-                self.runtime.config_file.display()
-            ));
-        }
+        self.validate_vpn_config()?;
 
         if self.is_connected() {
             println!("VPN 已连接，无需重复连接");
@@ -70,7 +80,10 @@ impl Vpn {
         }
 
         let sudo_mode = self.resolve_sudo_mode()?;
-        let password = self.read_vpn_password()?;
+        let password = match password_override {
+            Some(password) => password,
+            None => self.read_vpn_password()?,
+        };
         self.prepare_log_file()?;
 
         let mut openconnect_args = vec![
@@ -108,6 +121,7 @@ impl Vpn {
                 "OCH_ROUTES_EXTRA={}",
                 self.runtime.config.routes_extra.join(" ")
             ))
+            .arg(format!("OCH_DNS_MODE={}", self.runtime.config.dns_mode))
             .arg(self.openconnect_bin())
             .args(&openconnect_args)
             .stdin(Stdio::piped())
@@ -149,12 +163,25 @@ impl Vpn {
     }
 
     pub fn disconnect(&self) -> Result<(), String> {
-        require_tool("sudo")?;
-        if !self.runtime.pid_file.is_file() {
-            println!("未找到 PID 文件，视为已断开");
-            return Ok(());
+        if let Some(response) =
+            service::try_vpn_action(&self.runtime, service::ACTION_DISCONNECT, None)
+        {
+            return service::response_to_result(response);
         }
-        let pid = read_trimmed(&self.runtime.pid_file).map_err(|error| error.to_string())?;
+        self.disconnect_with_sudo()
+    }
+
+    fn disconnect_with_sudo(&self) -> Result<(), String> {
+        require_tool("sudo")?;
+        let Some(pid) = self.connected_pid() else {
+            if self.runtime.pid_file.is_file() {
+                println!("发现陈旧 PID 文件，已清理");
+                let _ = fs::remove_file(&self.runtime.pid_file);
+            } else {
+                println!("未找到 PID 文件，视为已断开");
+            }
+            return Ok(());
+        };
         let sudo_mode = self.resolve_sudo_mode()?;
         if self.sudo_kill(sudo_mode, &pid, "0") {
             self.sudo_command(sudo_mode, ["kill", &pid])?;
@@ -171,8 +198,15 @@ impl Vpn {
     }
 
     pub fn status(&self) -> Result<(), String> {
-        if self.is_connected() {
-            let pid = read_trimmed(&self.runtime.pid_file).unwrap_or_default();
+        if let Some(response) = service::try_vpn_action(&self.runtime, service::ACTION_STATUS, None)
+        {
+            return service::response_to_result(response);
+        }
+        self.status_local()
+    }
+
+    fn status_local(&self) -> Result<(), String> {
+        if let Some(pid) = self.connected_pid() {
             println!("VPN 已连接，PID: {pid}");
         } else {
             println!("VPN 未连接");
@@ -242,7 +276,7 @@ impl Vpn {
         if host.is_empty() {
             return Err("未设置 [ssh].target_host，无法发起 SSH 连接".into());
         }
-        if !self.is_connected() {
+        if !self.is_connected_for_user() {
             return Err("VPN 未连接，请先执行 connect".into());
         }
         let port = self.target_port();
@@ -256,6 +290,13 @@ impl Vpn {
     }
 
     pub fn logs(&self) -> Result<(), String> {
+        if let Some(response) = service::try_vpn_action(&self.runtime, service::ACTION_LOGS, None) {
+            return service::response_to_result(response);
+        }
+        self.logs_local()
+    }
+
+    fn logs_local(&self) -> Result<(), String> {
         if self.runtime.log_file.is_file() {
             let tail = tail_lines(&self.runtime.log_file, 40).map_err(|error| error.to_string())?;
             println!("{tail}");
@@ -274,25 +315,40 @@ impl Vpn {
     }
 
     fn is_connected(&self) -> bool {
-        if !self.runtime.pid_file.is_file() {
-            return false;
+        self.connected_pid().is_some()
+    }
+
+    fn connected_pid(&self) -> Option<String> {
+        if let Ok(pid) = read_trimmed(&self.runtime.pid_file) {
+            if process_looks_like_openconnect(&pid) {
+                return Some(pid);
+            }
         }
-        let Ok(pid) = read_trimmed(&self.runtime.pid_file) else {
-            return false;
-        };
-        if pid.parse::<u32>().is_err() {
-            return false;
+        discover_openconnect_pid(&self.runtime.config.vpn_host, &self.runtime.pid_file)
+    }
+
+    fn is_connected_for_user(&self) -> bool {
+        if let Some(response) = service::try_vpn_action(&self.runtime, service::ACTION_STATUS, None)
+        {
+            return response.ok && response.output.contains("VPN 已连接");
         }
-        let output = Command::new("ps")
-            .arg("-p")
-            .arg(pid)
-            .arg("-o")
-            .arg("comm=")
-            .output();
-        let Ok(output) = output else {
-            return false;
-        };
-        String::from_utf8_lossy(&output.stdout).trim() == "openconnect"
+        self.is_connected()
+    }
+
+    fn validate_vpn_config(&self) -> Result<(), String> {
+        if self.runtime.config.vpn_host.is_empty() {
+            return Err(format!(
+                "未设置 [vpn].host，请在 {} 中配置",
+                self.runtime.config_file.display()
+            ));
+        }
+        if self.runtime.config.vpn_user.is_empty() {
+            return Err(format!(
+                "未设置 [vpn].user，请在 {} 中配置",
+                self.runtime.config_file.display()
+            ));
+        }
+        Ok(())
     }
 
     fn target_host(&self) -> String {
@@ -337,7 +393,7 @@ impl Vpn {
     }
 
     fn resolve_vpn_script(&self) -> Option<std::path::PathBuf> {
-        if self.is_macos() && !self.runtime.config.routes_extra.is_empty() {
+        if self.is_macos() && self.runtime.config.requires_macos_vpnc_wrapper() {
             route_wrapper_path()
         } else {
             None

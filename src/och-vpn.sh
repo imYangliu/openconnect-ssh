@@ -51,7 +51,7 @@ OCH AnyConnect / OpenConnect 单机连接脚本
 环境变量:
   OCH_CONFIG_FILE   OCH TOML 配置文件，默认 ${OCH_CONFIG_FILE}
   OCH_SECRETS_FILE  只含 VPN_PASSWORD 的 secret 文件，默认 ${OCH_SECRETS_FILE}
-  VPN_PASSWORD      可选；优先于 secret 文件和 Keychain
+  VPN_PASSWORD      可选；优先于 secret 文件和 macOS Keychain fallback
   SUDO_ASKPASS      可选；sudo 无缓存时的管理员密码 fallback
   PID_FILE          PID 文件路径，默认 ${PID_FILE}
   LOG_FILE          日志文件路径，默认 ${LOG_FILE}
@@ -119,7 +119,7 @@ target_user() {
 }
 
 resolve_vpn_script() {
-  if is_macos && [[ -n "${OCH_ROUTES_EXTRA:-}" ]]; then
+  if is_macos && { [[ "${OCH_ROUTES_MODE:-openconnect}" == "extra" && -n "${OCH_ROUTES_EXTRA:-}" ]] || [[ "${OCH_DNS_MODE:-openconnect}" == "ignore" ]]; }; then
     printf '%s' "$SCRIPT_DIR/macos-vpnc-route-wrapper.sh"
   fi
 }
@@ -300,7 +300,7 @@ connect_vpn() {
   fi
 
   # shellcheck disable=SC2024
-  printf '%s\n' "$vpn_password" | sudo_cmd env "OCH_ROUTES_EXTRA=${OCH_ROUTES_EXTRA:-}" "$(openconnect_bin)" "${openconnect_args[@]}" \
+  printf '%s\n' "$vpn_password" | sudo_cmd env "OCH_ROUTES_EXTRA=${OCH_ROUTES_EXTRA:-}" "OCH_DNS_MODE=${OCH_DNS_MODE:-openconnect}" "$(openconnect_bin)" "${openconnect_args[@]}" \
     >>"$LOG_FILE" 2>&1 || {
       unset vpn_password VPN_PASSWORD vpn_script
       echo "VPN 连接失败，日志见: $LOG_FILE" >&2

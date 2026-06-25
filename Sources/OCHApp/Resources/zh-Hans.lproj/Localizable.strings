@@ -1,22 +1,67 @@
 "language.system" = "跟随系统";
 "language.english" = "English";
-"language.zh_hans" = "中文";
+"language.zh_hans" = "简体中文";
+"language.zh_hant" = "繁體中文";
+"route_mode.openconnect" = "OpenConnect 默认";
+"route_mode.extra" = "额外路由";
+"dns_mode.openconnect" = "使用 OpenConnect DNS";
+"dns_mode.ignore" = "忽略下发 DNS";
 
+"value.yes" = "是";
+"value.no" = "否";
+"value.unknown" = "未知";
+
+"pane.overview" = "概览";
 "pane.connection" = "连接";
 "pane.ssh" = "SSH";
 "pane.routes" = "路由与代理";
+"pane.service" = "服务";
 "pane.advanced" = "高级";
 "pane.config" = "TOML";
 "pane.logs" = "日志";
 
+"overview.title" = "OCH 连接概览";
+"overview.subtitle" = "管理 VPN 连接、macOS 服务模式和 SSH 接入状态。";
+"card.connection.title" = "VPN";
+"card.service.title" = "服务模式";
+"card.ssh_include.title" = "SSH Include";
+"card.config.title" = "配置";
+
 "status.ssh_include.installed" = "SSH Include 已安装";
 "status.ssh_include.missing" = "SSH Include 缺失";
 "status.ssh_include.missing_help" = "OCH 会写入托管 SSH Host，但当前 ~/.ssh/config 还没有 Include 它。";
+"status.ssh_include.ready_help" = "托管 SSH Host 已会被 OpenSSH 读取。";
 "status.ssh_include.install_success" = "已安装 SSH Include：%@";
+"status.config.unsaved" = "TOML 有未保存编辑";
+"status.config.saved_or_synced" = "配置已同步";
 "status.connection.saving" = "连接前正在保存配置...";
 "status.connection.save_failed" = "配置保存失败。请先处理 TOML 错误再连接。";
 "status.connection.running" = "正在运行 och vpn %@...";
 "status.connection.completed" = "命令已结束，退出状态：%d。";
+"status.connection.refreshing_after_action" = "操作已完成，正在刷新真实 VPN 状态...";
+"status.connection.connected" = "VPN 已连接";
+"status.connection.disconnected" = "VPN 未连接";
+"status.connection.error" = "VPN 状态异常";
+"status.connection.unknown" = "VPN 状态未知";
+"status.connection.refresh_hint" = "点击刷新状态获取当前 VPN 和路由信息。";
+"status.auto_refresh.on" = "自动刷新开启";
+"status.runtime_log.unavailable" = "运行时日志暂不可用：%@";
+"status.service.running_command" = "正在更新 macOS 服务 %@...";
+"status.service.available" = "服务已启用并可用";
+"status.service.available_short" = "服务可用";
+"status.service.needs_attention_short" = "服务需处理";
+"status.service.not_installed" = "服务未安装";
+"status.service.not_running" = "服务未运行";
+"status.service.socket_unreachable" = "服务 Socket 不可达";
+"status.service.xpc_unreachable" = "服务 XPC 端点不可达";
+"status.service.requires_approval" = "服务需要在系统设置中批准";
+"status.service.unknown" = "服务状态未知";
+"status.service.using_service" = "VPN 操作会通过本机 root XPC helper 执行。";
+"status.service.using_fallback" = "签名 helper 不可用时，debug 和 CLI-only 构建可以回退到 sudo 模式。";
+"status.service.install_success" = "服务安装完成。";
+"status.service.uninstall_success" = "服务已卸载。";
+"status.service.command_failed" = "服务命令执行失败。";
+"status.service.no_status_yet" = "尚未读取服务状态。";
 "status.saved_config" = "已保存配置：%@";
 "status.toml.unsaved_changes" = "TOML 有未保存编辑。应用或同步可能覆盖当前设置。";
 "accessibility.selected" = "已选中";
@@ -24,7 +69,10 @@
 "section.vpn" = "VPN";
 "section.managed_ssh_host" = "托管 SSH Host";
 "section.extra_routes" = "额外路由";
+"section.dns" = "DNS";
 "section.proxy" = "代理";
+"section.service_mode" = "macOS 服务模式";
+"section.service_raw_status" = "原始服务状态";
 "section.language" = "语言";
 
 "field.gateway" = "网关";
@@ -39,6 +87,15 @@
 "field.remote_port" = "远端端口";
 "field.language" = "语言";
 "field.route_cidr" = "路由 CIDR";
+"field.route_mode" = "路由模式";
+"field.dns_mode" = "DNS 模式";
+"field.service_installed" = "已安装";
+"field.service_running" = "运行中";
+"field.registration_status" = "注册状态";
+"field.xpc_reachable" = "XPC 可达";
+"field.socket_exists" = "Socket 存在";
+"field.socket_reachable" = "Socket 可达";
+"field.socket_path" = "Socket";
 
 "placeholder.gateway" = "vpn.example.com";
 "placeholder.vpn_user" = "你的 VPN 用户名";
@@ -56,11 +113,16 @@
 "help.password" = "用于 VPN 登录；只有启用保存时才会写入 Keychain。";
 "help.host" = "OCH 将写入 SSH 配置的别名。";
 "help.hostname" = "通过 VPN 访问的真实 SSH 目标。";
-"help.route_cidr" = "可选的目标路由，例如单台主机使用 /32。";
-"help.extra_routes" = "每行填写一个 CIDR，也可以用空格或逗号分隔。";
+"help.route_mode" = "OpenConnect 默认会把路由交给 OpenConnect 处理。额外路由会把指定 CIDR 加入 VPN tunnel。";
+"help.route_cidr" = "可选的额外 VPN 路由，例如单台主机使用 /32。留空则保持 OpenConnect 默认行为。";
+"help.extra_routes" = "填写要加入 VPN tunnel 的 CIDR，每行一个，也可以用空格或逗号分隔。这不是直连绕过路由。";
+"help.extra_routes_inactive" = "当前为 OpenConnect 默认模式，这些 CIDR 会被保留但不会生效。";
+"help.dns_mode" = "使用 OpenConnect DNS 会允许 VPN 脚本更新系统 DNS。忽略下发 DNS 会在 macOS 上保留现有 DNS 设置。";
 "help.local_host" = "SSH 代理监听的本地地址。";
+"help.proxy_optional" = "用于反向端口映射的可选兼容设置。不需要旧版代理行为时保持关闭。";
 
 "toggle.save_vpn_password" = "将 VPN 密码保存到 Keychain";
+"toggle.enable_proxy" = "启用代理";
 
 "setup.title" = "OCH 引导";
 "setup.step.vpn" = "1 / 2 VPN";
@@ -85,6 +147,12 @@
 "button.connect" = "连接";
 "button.disconnect" = "断开";
 "button.status" = "状态";
+"button.refresh_status" = "刷新状态";
+"button.refresh_all" = "全部刷新";
+"button.refresh_service" = "刷新服务";
+"button.install_service" = "安装服务";
+"button.uninstall_service" = "卸载服务";
+"button.open_system_settings" = "打开系统设置";
 "button.install_include" = "安装 Include";
 "button.remove_keychain_password" = "删除 Keychain 密码";
 "button.reload" = "重新加载";
@@ -104,8 +172,16 @@
 "confirm.reload.message" = "重新加载会从磁盘读取 config.toml，并替换当前界面字段。";
 "confirm.sync_toml.title" = "覆盖 TOML 编辑？";
 "confirm.sync_toml.message" = "从设置同步会用表单中的值替换当前 TOML 文本。";
+"confirm.service_install.title" = "安装 macOS 服务？";
+"confirm.service_install.message" = "这会注册 OCH 签名的 macOS 后台 helper。批准由系统设置处理，OCH 不会保存管理员密码。";
+"confirm.service_uninstall.title" = "卸载 macOS 服务？";
+"confirm.service_uninstall.message" = "这会取消注册 OCH 后台 helper。之后 debug 和 CLI-only 构建可以回退到 sudo 模式。";
 
 "label.log" = "日志";
+"label.operation_history" = "操作历史";
+"label.runtime_log" = "运行时日志";
+"tray.open_window" = "打开 OCH";
+"tray.quit" = "退出 OCH";
 
 "log.loaded_config" = "已加载配置：%@";
 "log.load_failed" = "加载失败：%@";
@@ -123,6 +199,7 @@
 "log.vpn_user_required" = "必须填写 VPN 用户";
 "log.vpn_password_required" = "必须填写 VPN 密码。请在密码字段中输入，或将它保存到 Keychain。";
 "log.exit_status" = "退出状态：%d";
+"log.xpc_fallback" = "XPC helper 不可用，正在使用 debug fallback：%@";
 "log.command_failed" = "命令失败：%@";
 "log.setup_completed" = "引导完成，已保存配置：%@";
 "log.setup_failed" = "引导保存失败：%@";
@@ -130,9 +207,11 @@
 "error.toml.invalid_line" = "第 %d 行 TOML 无效：%@";
 "error.toml.invalid_section" = "第 %d 行 TOML section 无效：%@";
 "error.toml.unknown_section" = "第 %d 行 TOML section 未知：%@";
+"error.toml.paths_key" = "[paths] 由已安装的运行时布局固定；请删除 %@（第 %d 行）";
 "error.toml.unknown_key" = "第 %d 行 TOML 字段未知：[%@].%@";
 "error.toml.invalid_value" = "第 %d 行 %@ 的值无效：%@";
 "error.toml.missing_required" = "缺少必填 TOML 字段：%@";
+"error.ssh_config.validation_failed" = "生成的 SSH 配置未通过 ssh 校验：%@";
 
 "validation.vpn_gateway_required" = "必须填写 VPN 网关。";
 "validation.vpn_user_required" = "必须填写 VPN 用户。";

@@ -113,18 +113,41 @@ och_config_apply_value() {
       OCH_ROUTES_EXTRA="$(och_config_parse_array "$value")" || \
         return $?
       ;;
+    routes.mode)
+      case "$value" in
+        openconnect|extra)
+          OCH_ROUTES_MODE="$value"
+          ;;
+        *)
+          och_config_error "invalid routes.mode at line $line_number: $value" || return 1
+          ;;
+      esac
+      ;;
+    dns.mode)
+      case "$value" in
+        openconnect|ignore)
+          OCH_DNS_MODE="$value"
+          ;;
+        *)
+          och_config_error "invalid dns.mode at line $line_number: $value" || return 1
+          ;;
+      esac
+      ;;
     proxy.local_host)
+      OCH_PROXY_ENABLED=1
       OCH_PROXY_LOCAL_HOST="$value"
       ;;
     proxy.local_port)
+      OCH_PROXY_ENABLED=1
       OCH_PROXY_LOCAL_PORT="$value"
       ;;
     proxy.remote_port)
+      OCH_PROXY_ENABLED=1
       OCH_PROXY_REMOTE_PORT="$value"
       ;;
     app.language)
       case "$value" in
-        system|en|zh-Hans)
+        system|en|zh-Hans|zh-Hant)
           OCH_APP_LANGUAGE="$value"
           ;;
         *)
@@ -149,7 +172,10 @@ och_config_init_defaults() {
   OCH_TARGET_HOST="${OCH_TARGET_HOST:-}"
   OCH_TARGET_PORT="${OCH_TARGET_PORT:-22}"
   OCH_TARGET_SSH_USER="${OCH_TARGET_SSH_USER:-${USER:-}}"
+  OCH_ROUTES_MODE="${OCH_ROUTES_MODE:-openconnect}"
   OCH_ROUTES_EXTRA="${OCH_ROUTES_EXTRA:-}"
+  OCH_DNS_MODE="${OCH_DNS_MODE:-openconnect}"
+  OCH_PROXY_ENABLED="${OCH_PROXY_ENABLED:-0}"
   OCH_PROXY_LOCAL_HOST="${OCH_PROXY_LOCAL_HOST:-127.0.0.1}"
   OCH_PROXY_LOCAL_PORT="${OCH_PROXY_LOCAL_PORT:-7890}"
   OCH_PROXY_REMOTE_PORT="${OCH_PROXY_REMOTE_PORT:-7890}"
@@ -184,7 +210,9 @@ load_och_toml_file() {
   OCH_TARGET_HOST=""
   OCH_TARGET_PORT="22"
   OCH_TARGET_SSH_USER="${USER:-}"
+  OCH_ROUTES_MODE=""
   OCH_ROUTES_EXTRA=""
+  OCH_DNS_MODE="openconnect"
   OCH_PROXY_LOCAL_HOST="127.0.0.1"
   OCH_PROXY_LOCAL_PORT="7890"
   OCH_PROXY_REMOTE_PORT="7890"
@@ -199,7 +227,7 @@ load_och_toml_file() {
     if [[ "$line" == \[*\] ]]; then
       section="$(och_config_trim "${line:1:${#line}-2}")"
       case "$section" in
-        vpn|ssh|routes|proxy|paths|app)
+        vpn|ssh|routes|dns|proxy|paths|app)
           ;;
         *)
           och_config_error "unknown config section at line $line_number: $section" || return 1
@@ -225,6 +253,14 @@ load_och_toml_file() {
     }
     och_config_apply_value "$section" "$key" "$value" "$line_number" || return 1
   done < "$config_file"
+
+  if [[ -z "${OCH_ROUTES_MODE:-}" ]]; then
+    if [[ -n "${OCH_ROUTES_EXTRA:-}" ]]; then
+      OCH_ROUTES_MODE="extra"
+    else
+      OCH_ROUTES_MODE="openconnect"
+    fi
+  fi
 
   if [[ "$validate_required" == "1" ]]; then
     och_config_validate_required || return 1
