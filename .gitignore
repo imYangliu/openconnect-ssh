@@ -3,6 +3,7 @@
 .vscode/
 .build/
 .env
+secrets.env
 *.log
 *.swp
 *.swo

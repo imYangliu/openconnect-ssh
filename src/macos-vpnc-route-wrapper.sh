@@ -3,7 +3,6 @@ set -euo pipefail
 
 PATH="/sbin:/usr/sbin:$PATH"
 
-# Detect the Homebrew prefix: /opt/homebrew on Apple Silicon, /usr/local on Intel.
 default_vpnc_script() {
   local prefix
   for prefix in /opt/homebrew /usr/local; do
@@ -12,17 +11,16 @@ default_vpnc_script() {
       return 0
     fi
   done
-  # Fall back to the Apple Silicon path; run_base_script reports if it is missing.
-  printf '/opt/homebrew/etc/vpnc/vpnc-script'
+  return 1
 }
 
-: "${VPNC_SCRIPT_BASE:=$(default_vpnc_script)}"
-: "${MACOS_EXTRA_ROUTES:=}"
+: "${VPNC_SCRIPT_BASE:=$(default_vpnc_script || true)}"
+: "${OCH_ROUTES_EXTRA:=}"
 : "${OCH_ROUTE_DRY_RUN:=0}"
 
 run_base_script() {
   if [[ ! -x "$VPNC_SCRIPT_BASE" ]]; then
-    echo "Error: missing executable vpnc-script: $VPNC_SCRIPT_BASE" >&2
+    echo 'Error: missing executable vpnc-script; install Homebrew openconnect or set VPNC_SCRIPT_BASE' >&2
     return 1
   fi
 
@@ -44,13 +42,13 @@ apply_extra_routes() {
   local action="$1"
   local cidr
 
-  [[ -n "$MACOS_EXTRA_ROUTES" ]] || return 0
+  [[ -n "$OCH_ROUTES_EXTRA" ]] || return 0
   [[ -n "${TUNDEV:-}" ]] || {
     echo 'Error: TUNDEV is required to adjust macOS extra routes' >&2
     return 1
   }
 
-  for cidr in $MACOS_EXTRA_ROUTES; do
+  for cidr in $OCH_ROUTES_EXTRA; do
     case "$action" in
       add)
         run_route -n add -net "$cidr" -interface "$TUNDEV"

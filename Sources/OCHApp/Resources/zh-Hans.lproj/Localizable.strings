@@ -15,7 +15,7 @@
 "status.ssh_include.install_success" = "已安装 SSH Include：%@";
 "status.connection.saving" = "连接前正在保存配置...";
 "status.connection.save_failed" = "配置保存失败。请先处理 TOML 错误再连接。";
-"status.connection.running" = "正在运行 och-vpn %@...";
+"status.connection.running" = "正在运行 och vpn %@...";
 "status.connection.completed" = "命令已结束，退出状态：%d。";
 "status.saved_config" = "已保存配置：%@";
 "status.toml.unsaved_changes" = "TOML 有未保存编辑。应用或同步可能覆盖当前设置。";
@@ -51,7 +51,7 @@
 "placeholder.local_host" = "127.0.0.1";
 "placeholder.proxy_port" = "7890";
 
-"help.gateway" = "och-vpn 使用的 OpenConnect 网关地址。";
+"help.gateway" = "och vpn 使用的 OpenConnect 网关地址。";
 "help.auth_group" = "如果网关不要求认证组，可以留空。";
 "help.password" = "用于 VPN 登录；只有启用保存时才会写入 Keychain。";
 "help.host" = "OCH 将写入 SSH 配置的别名。";
@@ -119,7 +119,7 @@
 "log.keychain_read_failed" = "读取 Keychain 密码失败：%@";
 "log.installed_ssh_include" = "已安装 SSH Include：%@";
 "log.ssh_config_update_failed" = "更新 SSH 配置失败：%@";
-"log.vpn_user_required" = "必须填写 VPN_USER";
+"log.vpn_user_required" = "必须填写 VPN 用户";
 "log.vpn_password_required" = "必须填写 VPN 密码。请在密码字段中输入，或将它保存到 Keychain。";
 "log.exit_status" = "退出状态：%d";
 "log.command_failed" = "命令失败：%@";
@@ -128,6 +128,10 @@
 
 "error.toml.invalid_line" = "第 %d 行 TOML 无效：%@";
 "error.toml.invalid_section" = "第 %d 行 TOML section 无效：%@";
+"error.toml.unknown_section" = "第 %d 行 TOML section 未知：%@";
+"error.toml.unknown_key" = "第 %d 行 TOML 字段未知：[%@].%@";
+"error.toml.invalid_value" = "第 %d 行 %@ 的值无效：%@";
+"error.toml.missing_required" = "缺少必填 TOML 字段：%@";
 
 "validation.vpn_gateway_required" = "必须填写 VPN 网关。";
 "validation.vpn_user_required" = "必须填写 VPN 用户。";

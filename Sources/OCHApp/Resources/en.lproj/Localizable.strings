@@ -15,7 +15,7 @@
 "status.ssh_include.install_success" = "Installed SSH Include: %@";
 "status.connection.saving" = "Saving configuration before connecting...";
 "status.connection.save_failed" = "Could not save the configuration. Check the TOML error before connecting.";
-"status.connection.running" = "Running och-vpn %@...";
+"status.connection.running" = "Running och vpn %@...";
 "status.connection.completed" = "Command finished with exit status %d.";
 "status.saved_config" = "Saved configuration: %@";
 "status.toml.unsaved_changes" = "TOML has unsaved edits. Applying or syncing may overwrite the current settings.";
@@ -51,7 +51,7 @@
 "placeholder.local_host" = "127.0.0.1";
 "placeholder.proxy_port" = "7890";
 
-"help.gateway" = "OpenConnect gateway host used by och-vpn.";
+"help.gateway" = "OpenConnect gateway host used by och vpn.";
 "help.auth_group" = "Leave blank if your gateway does not require an auth group.";
 "help.password" = "Used for VPN login; saved to Keychain only when enabled.";
 "help.host" = "Alias OCH will add to your SSH config.";
@@ -119,7 +119,7 @@
 "log.keychain_read_failed" = "Keychain password read failed: %@";
 "log.installed_ssh_include" = "Installed SSH Include: %@";
 "log.ssh_config_update_failed" = "SSH config update failed: %@";
-"log.vpn_user_required" = "VPN_USER is required";
+"log.vpn_user_required" = "VPN user is required";
 "log.vpn_password_required" = "VPN password is required. Enter it in the password field or save it to Keychain.";
 "log.exit_status" = "Exit status: %d";
 "log.command_failed" = "Command failed: %@";
@@ -128,6 +128,10 @@
 
 "error.toml.invalid_line" = "Invalid TOML at line %d: %@";
 "error.toml.invalid_section" = "Invalid TOML section at line %d: %@";
+"error.toml.unknown_section" = "Unknown TOML section at line %d: %@";
+"error.toml.unknown_key" = "Unknown TOML key at line %d: [%@].%@";
+"error.toml.invalid_value" = "Invalid value at line %d for %@: %@";
+"error.toml.missing_required" = "Missing required TOML key: %@";
 
 "validation.vpn_gateway_required" = "VPN gateway is required.";
 "validation.vpn_user_required" = "VPN user is required.";

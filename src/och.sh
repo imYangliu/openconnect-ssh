@@ -3,39 +3,17 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OCH_CONFIG_FILE="${OCH_CONFIG_FILE:-$HOME/.config/och/config.toml}"
+OCH_SECRETS_FILE="${OCH_SECRETS_FILE:-$HOME/.config/och/secrets.env}"
 OCH_COMMAND_NAME="${OCH_COMMAND_NAME:-$(basename "$0")}"
+OCH_VPN_HELPER="$SCRIPT_DIR/och-vpn.sh"
 
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/och-config.sh"
 
-load_env_file() {
-  local env_file="$1"
-
-  [[ -r "$env_file" ]] || return 0
-  set -a
-  # shellcheck disable=SC1090
-  source "$env_file"
-  set +a
-}
-
 if [[ -r "$OCH_CONFIG_FILE" ]]; then
   load_och_toml_file "$OCH_CONFIG_FILE"
 fi
-
-if [[ -n "${ENV_FILE:-}" ]]; then
-  load_env_file "$ENV_FILE"
-elif [[ -r .env ]]; then
-  load_env_file .env
-elif [[ -n "${PROJECT_ENV_FILE:-}" ]]; then
-  load_env_file "$PROJECT_ENV_FILE"
-fi
-
-DEFAULT_CONNECT_SCRIPT="$(command -v och-vpn 2>/dev/null || printf '/usr/local/bin/och-vpn')"
-CONNECT_SCRIPT="${CONNECT_SCRIPT:-$DEFAULT_CONNECT_SCRIPT}"
-DEFAULT_HOST="${DEFAULT_HOST:-}"
-PROXY_LOCAL_HOST="${PROXY_LOCAL_HOST:-127.0.0.1}"
-PROXY_LOCAL_PORT="${PROXY_LOCAL_PORT:-7890}"
-PROXY_REMOTE_PORT="${PROXY_REMOTE_PORT:-7890}"
+load_och_secrets_file "$OCH_SECRETS_FILE"
 
 log() {
   echo "[och] $*" >&2
@@ -60,8 +38,8 @@ usage() {
 
 行为:
   - 若参数里已经包含目标主机，则按原样转交给 ssh
-  - 若未提供目标主机，则使用 DEFAULT_HOST；若未配置 DEFAULT_HOST，则报错
-  - 使用 --proxy 时，会额外添加远端端口映射：${PROXY_REMOTE_PORT} -> ${PROXY_LOCAL_HOST}:${PROXY_LOCAL_PORT}
+  - 若未提供目标主机，则使用 config.toml 的 [ssh].host；未配置则报错
+  - 使用 --proxy 时，会额外添加 config.toml 中的反向端口映射
   - 使用 --proxy-command 时，会先确保 VPN 可达，再把 stdio 连接到目标 host:port
   - 使用 setup 时，会引导写入 ${OCH_CONFIG_FILE}、Keychain 和托管 SSH Host
 
@@ -74,11 +52,8 @@ usage() {
 
 环境变量:
   OCH_CONFIG_FILE     OCH TOML 配置文件，默认 ${OCH_CONFIG_FILE}
-  CONNECT_SCRIPT      VPN 连接脚本路径，默认 ${CONNECT_SCRIPT}
-  DEFAULT_HOST        缺省 SSH 目标主机；未设置时必须显式传入目标主机
-  PROXY_LOCAL_HOST    --proxy 映射到的本地地址，默认 ${PROXY_LOCAL_HOST}
-  PROXY_LOCAL_PORT    --proxy 映射到的本地端口，默认 ${PROXY_LOCAL_PORT}
-  PROXY_REMOTE_PORT   --proxy 暴露到远端的端口，默认 ${PROXY_REMOTE_PORT}
+  OCH_SECRETS_FILE    只含 VPN_PASSWORD 的 secret 文件，默认 ${OCH_SECRETS_FILE}
+  VPN_PASSWORD        可选；优先于 secret 文件和 Keychain
 EOF
 }
 
@@ -225,11 +200,11 @@ run_connect_script() {
 
   local -a env_args=()
 
-  [[ -n "${RESOLVED_HOST:-}" ]] && env_args+=("TARGET_HOST=${RESOLVED_HOST}")
-  [[ -n "${RESOLVED_PORT:-}" ]] && env_args+=("TARGET_PORT=${RESOLVED_PORT}")
-  [[ -n "${RESOLVED_USER:-}" ]] && env_args+=("TARGET_SSH_USER=${RESOLVED_USER}")
+  [[ -n "${RESOLVED_HOST:-}" ]] && env_args+=("OCH_RUNTIME_TARGET_HOST=${RESOLVED_HOST}")
+  [[ -n "${RESOLVED_PORT:-}" ]] && env_args+=("OCH_RUNTIME_TARGET_PORT=${RESOLVED_PORT}")
+  [[ -n "${RESOLVED_USER:-}" ]] && env_args+=("OCH_RUNTIME_TARGET_USER=${RESOLVED_USER}")
 
-  env "${env_args[@]}" "$CONNECT_SCRIPT" "$subcommand" "$@"
+  env "${env_args[@]}" "$OCH_VPN_HELPER" "$subcommand" "$@"
 }
 
 verify_vpn() {
@@ -250,7 +225,7 @@ ensure_vpn() {
     return 0
   fi
 
-  die "重连后仍无法访问目标，检查日志：${CONNECT_SCRIPT} logs"
+  die "重连后仍无法访问目标，检查日志：${OCH_VPN_HELPER} logs"
 }
 
 proxy_command() {
@@ -271,7 +246,7 @@ proxy_command() {
 
 main() {
   require_tool ssh
-  require_tool "$CONNECT_SCRIPT"
+  require_tool "$OCH_VPN_HELPER"
 
   if [[ "${1:-}" == "setup" ]]; then
     local setup_script="${OCH_SETUP_SCRIPT:-$SCRIPT_DIR/och-setup.sh}"
@@ -299,18 +274,18 @@ main() {
   fi
 
   if ! destination=$(find_destination "${ssh_args[@]+"${ssh_args[@]}"}"); then
-    if [[ -z "$DEFAULT_HOST" ]]; then
+    if [[ -z "${OCH_SSH_HOST:-}" ]]; then
       die "未提供目标主机，请传入 SSH host，或在 ${OCH_CONFIG_FILE} 中设置 ssh.host"
     fi
-    destination="$DEFAULT_HOST"
+    destination="$OCH_SSH_HOST"
     ssh_args+=("$destination")
   fi
 
   if (( proxy_mode )); then
-    log "启用代理映射: 远端 ${PROXY_REMOTE_PORT} -> 本地 ${PROXY_LOCAL_HOST}:${PROXY_LOCAL_PORT}"
+    log "启用代理映射: 远端 ${OCH_PROXY_REMOTE_PORT} -> 本地 ${OCH_PROXY_LOCAL_HOST}:${OCH_PROXY_LOCAL_PORT}"
     ssh_args+=(
       -o "ExitOnForwardFailure=yes"
-      -R "${PROXY_REMOTE_PORT}:${PROXY_LOCAL_HOST}:${PROXY_LOCAL_PORT}"
+      -R "${OCH_PROXY_REMOTE_PORT}:${OCH_PROXY_LOCAL_HOST}:${OCH_PROXY_LOCAL_PORT}"
     )
   fi
 

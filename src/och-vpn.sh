@@ -17,45 +17,19 @@ load_och_config_helper() {
   exit 1
 }
 
-: "${VPN_HOST:=}"
-: "${VPN_USER:=}"
-: "${VPN_AUTHGROUP:=}"
-: "${TARGET_HOST:=}"
-: "${TARGET_PORT:=22}"
-: "${TARGET_SSH_USER:=${USER:-root}}"
-: "${OPENCONNECT_BIN:=$(command -v openconnect 2>/dev/null || printf 'openconnect')}"
 : "${PID_FILE:=/tmp/och-openconnect-${USER}.pid}"
 : "${LOG_FILE:=/tmp/och-openconnect-${USER}.log}"
 : "${OCH_CONFIG_FILE:=$HOME/.config/och/config.toml}"
+: "${OCH_SECRETS_FILE:=$HOME/.config/och/secrets.env}"
 : "${OCH_KEYCHAIN_SERVICE:=och}"
-: "${OCH_SECURITY_BIN:=/usr/bin/security}"
 : "${OS_NAME:=$(uname -s)}"
 
 load_och_config_helper
 
-load_env_file() {
-  local env_file="$1"
-
-  [[ -r "$env_file" ]] || return 0
-  set -a
-  # shellcheck disable=SC1090
-  source "$env_file"
-  set +a
-}
-
 if [[ -r "$OCH_CONFIG_FILE" ]]; then
   load_och_toml_file "$OCH_CONFIG_FILE"
 fi
-
-if [[ -n "${ENV_FILE:-}" ]]; then
-  load_env_file "$ENV_FILE"
-elif [[ -r .env ]]; then
-  load_env_file .env
-elif [[ -n "${PROJECT_ENV_FILE:-}" ]]; then
-  load_env_file "$PROJECT_ENV_FILE"
-fi
-
-: "${VPN_ROUTES:=}"
+load_och_secrets_file "$OCH_SECRETS_FILE"
 
 usage() {
   cat <<EOF
@@ -68,26 +42,18 @@ OCH AnyConnect / OpenConnect 单机连接脚本
   connect      连接 VPN
   disconnect   断开 VPN
   status       显示当前连接状态
-  verify       验证目标路由和 TARGET_HOST:TARGET_PORT 连通性
-  ssh          通过 VPN SSH 到 TARGET_SSH_USER@TARGET_HOST:TARGET_PORT
+  verify       验证目标路由和目标端口连通性
+  ssh          通过 VPN SSH 到配置的目标主机
   logs         查看最近日志
   help         显示帮助
 
 环境变量:
-  VPN_HOST         VPN 地址；必须配置
-  VPN_USER         VPN 用户名；必须配置
-  VPN_AUTHGROUP    可选认证组；部分网关需要
-  TARGET_HOST      目标主机；verify / ssh 需要
-  VPN_ROUTES       分流网段列表；Linux 上使用 vpn-slice/uvx 时需要
-  TARGET_PORT      目标端口，默认 ${TARGET_PORT}
-  TARGET_SSH_USER  SSH 用户，默认 ${TARGET_SSH_USER}
-  OPENCONNECT_BIN  openconnect 可执行文件，默认 ${OPENCONNECT_BIN}
-  VPN_SCRIPT_CMD   可选；覆盖 OpenConnect vpnc-script 命令
-  MACOS_EXTRA_ROUTES macOS 上额外走 VPN 的 CIDR 列表
-  VPN_PASSWORD     可选；未设置时会静默提示输入
-  OCH_CONFIG_FILE  OCH TOML 配置文件，默认 ${OCH_CONFIG_FILE}
-  PID_FILE         PID 文件路径，默认 ${PID_FILE}
-  LOG_FILE         日志文件路径，默认 ${LOG_FILE}
+  OCH_CONFIG_FILE   OCH TOML 配置文件，默认 ${OCH_CONFIG_FILE}
+  OCH_SECRETS_FILE  只含 VPN_PASSWORD 的 secret 文件，默认 ${OCH_SECRETS_FILE}
+  VPN_PASSWORD      可选；优先于 secret 文件和 Keychain
+  SUDO_ASKPASS      可选；GUI 使用 sudo -A 时传入
+  PID_FILE          PID 文件路径，默认 ${PID_FILE}
+  LOG_FILE          日志文件路径，默认 ${LOG_FILE}
 
 示例:
   $(basename "$0") connect
@@ -132,36 +98,26 @@ is_macos() {
   [[ "$OS_NAME" == "Darwin" ]]
 }
 
+openconnect_bin() {
+  command -v openconnect 2>/dev/null || printf 'openconnect'
+}
+
+target_host() {
+  printf '%s' "${OCH_RUNTIME_TARGET_HOST:-${OCH_TARGET_HOST:-}}"
+}
+
+target_port() {
+  printf '%s' "${OCH_RUNTIME_TARGET_PORT:-${OCH_TARGET_PORT:-22}}"
+}
+
+target_user() {
+  printf '%s' "${OCH_RUNTIME_TARGET_USER:-${OCH_TARGET_SSH_USER:-${USER:-}}}"
+}
+
 resolve_vpn_script() {
-  if [[ -n "${VPN_SCRIPT_CMD:-}" ]]; then
-    printf '%s' "$VPN_SCRIPT_CMD"
-    return 0
-  fi
-
-  if is_macos && [[ -n "${MACOS_EXTRA_ROUTES:-}" ]]; then
+  if is_macos && [[ -n "${OCH_ROUTES_EXTRA:-}" ]]; then
     printf '%s' "$SCRIPT_DIR/macos-vpnc-route-wrapper.sh"
-    return 0
   fi
-
-  if is_macos && [[ -z "$VPN_ROUTES" ]]; then
-    return 0
-  fi
-
-  if command -v vpn-slice >/dev/null 2>&1; then
-    printf '%s %s' "$(command -v vpn-slice)" "$VPN_ROUTES"
-    return 0
-  fi
-
-  if command -v uvx >/dev/null 2>&1; then
-    printf '%s --from vpn-slice vpn-slice %s' "$(command -v uvx)" "$VPN_ROUTES"
-    return 0
-  fi
-
-  if is_macos; then
-    error '已设置 VPN_ROUTES，但未找到 vpn-slice/uvx；macOS 无新增依赖模式请取消 VPN_ROUTES，或改用 MACOS_EXTRA_ROUTES'
-  fi
-
-  error '缺少分流脚本：请安装 vpn-slice，或确保 uvx 可用'
 }
 
 read_vpn_password() {
@@ -170,11 +126,11 @@ read_vpn_password() {
     return 0
   fi
 
-  if is_macos && [[ -n "${VPN_USER:-}" && -x "$OCH_SECURITY_BIN" ]]; then
+  if is_macos && [[ -n "${OCH_VPN_USER:-}" && -x /usr/bin/security ]]; then
     local keychain_password
-    keychain_password="$("$OCH_SECURITY_BIN" find-generic-password \
+    keychain_password="$(/usr/bin/security find-generic-password \
       -s "$OCH_KEYCHAIN_SERVICE" \
-      -a "$VPN_USER" \
+      -a "$OCH_VPN_USER" \
       -w 2>/dev/null || true)"
     if [[ -n "$keychain_password" ]]; then
       printf '%s' "$keychain_password"
@@ -257,13 +213,13 @@ route_iface_for_host() {
 
 wait_for_target_route() {
   local timeout_seconds="${1:-15}"
-  local target_iface=""
-  local attempt
+  local host target_iface="" attempt
 
-  [[ -n "$TARGET_HOST" ]] || return 0
+  host="$(target_host)"
+  [[ -n "$host" ]] || return 0
 
   for ((attempt=0; attempt<timeout_seconds; attempt++)); do
-    target_iface=$(route_iface_for_host "$TARGET_HOST" || true)
+    target_iface=$(route_iface_for_host "$host" || true)
     if [[ -n "$target_iface" ]]; then
       return 0
     fi
@@ -274,6 +230,9 @@ wait_for_target_route() {
 }
 
 show_status() {
+  local host
+  host="$(target_host)"
+
   if is_connected; then
     local pid
     pid=$(<"$PID_FILE")
@@ -285,28 +244,25 @@ show_status() {
   echo "默认路由:"
   default_route_line || true
 
-  if [[ -n "$TARGET_HOST" ]]; then
+  if [[ -n "$host" ]]; then
     echo "目标路由:"
-    route_line_for_host "$TARGET_HOST" || true
+    route_line_for_host "$host" || true
   else
-    echo '目标路由: 未配置 TARGET_HOST'
+    echo '目标路由: 未配置 [ssh].target_host'
   fi
 }
 
 connect_vpn() {
   require_tool sudo
-  require_tool "$OPENCONNECT_BIN"
+  require_tool "$(openconnect_bin)"
   if is_macos; then
     require_tool route
     require_tool nc
   else
     require_tool ip
   fi
-  require_value VPN_HOST "未设置 VPN_HOST，请在 ${OCH_CONFIG_FILE} 或环境变量中配置"
-  require_value VPN_USER "未设置 VPN_USER，请在 ${OCH_CONFIG_FILE} 或环境变量中配置"
-  if ! is_macos && [[ -z "${VPN_SCRIPT_CMD:-}" ]]; then
-    require_value VPN_ROUTES "未设置 VPN_ROUTES，请在 ${OCH_CONFIG_FILE} 或环境变量中配置"
-  fi
+  require_value OCH_VPN_HOST "未设置 [vpn].host，请在 ${OCH_CONFIG_FILE} 中配置"
+  require_value OCH_VPN_USER "未设置 [vpn].user，请在 ${OCH_CONFIG_FILE} 中配置"
 
   if is_connected; then
     echo 'VPN 已连接，无需重复连接'
@@ -314,8 +270,7 @@ connect_vpn() {
     return 0
   fi
 
-  local vpn_password
-  local vpn_script
+  local vpn_password vpn_script
   vpn_password=$(read_vpn_password)
   vpn_script=$(resolve_vpn_script)
 
@@ -323,39 +278,39 @@ connect_vpn() {
   chmod 600 "$LOG_FILE"
 
   local -a openconnect_args=(
-    "$VPN_HOST"
-    -u "$VPN_USER"
-    --os=win \
-    --useragent=AnyConnect \
-    --passwd-on-stdin \
-    --background \
-    --pid-file="$PID_FILE" \
+    "$OCH_VPN_HOST"
+    -u "$OCH_VPN_USER"
+    --os=win
+    --useragent=AnyConnect
+    --passwd-on-stdin
+    --background
+    --pid-file="$PID_FILE"
   )
 
   if [[ -n "$vpn_script" ]]; then
     openconnect_args+=(--script "$vpn_script")
   fi
 
-  if [[ -n "$VPN_AUTHGROUP" ]]; then
-    openconnect_args+=(--authgroup="$VPN_AUTHGROUP")
+  if [[ -n "${OCH_VPN_AUTHGROUP:-}" ]]; then
+    openconnect_args+=(--authgroup="$OCH_VPN_AUTHGROUP")
   fi
 
   # shellcheck disable=SC2024
-  printf '%s\n' "$vpn_password" | sudo_cmd "$OPENCONNECT_BIN" "${openconnect_args[@]}" \
+  printf '%s\n' "$vpn_password" | sudo_cmd env "OCH_ROUTES_EXTRA=${OCH_ROUTES_EXTRA:-}" "$(openconnect_bin)" "${openconnect_args[@]}" \
     >>"$LOG_FILE" 2>&1 || {
-      unset vpn_password VPN_PASSWORD vpn_script VPN_SCRIPT_CMD
+      unset vpn_password VPN_PASSWORD vpn_script
       echo "VPN 连接失败，日志见: $LOG_FILE" >&2
       tail -n 40 "$LOG_FILE" >&2 || true
       return 1
     }
 
-  unset vpn_password VPN_PASSWORD vpn_script VPN_SCRIPT_CMD
+  unset vpn_password VPN_PASSWORD vpn_script
   sleep 2
 
   if is_connected; then
     echo "VPN 已连接，日志: $LOG_FILE"
     if wait_for_target_route 15; then
-      if [[ -n "$TARGET_HOST" ]]; then
+      if [[ -n "$(target_host)" ]]; then
         verify_connection || true
       fi
     else
@@ -398,17 +353,19 @@ verify_connection() {
   else
     require_tool ip
   fi
-  require_value TARGET_HOST "未设置 TARGET_HOST，无法验证目标连通性"
 
-  local default_iface=""
-  local target_iface=""
+  local host port default_iface="" target_iface=""
+  host="$(target_host)"
+  port="$(target_port)"
+  [[ -n "$host" ]] || error "未设置 [ssh].target_host，无法验证目标连通性"
+
   default_iface=$(default_route_iface || true)
-  target_iface=$(route_iface_for_host "$TARGET_HOST" || true)
+  target_iface=$(route_iface_for_host "$host" || true)
 
   echo "默认路由:"
   default_route_line
   echo "目标路由:"
-  route_line_for_host "$TARGET_HOST"
+  route_line_for_host "$host"
 
   if [[ -n "$default_iface" && -n "$target_iface" && "$default_iface" != "$target_iface" ]]; then
     echo "路由检查: 目标主机走 ${target_iface}，默认流量仍走 ${default_iface}"
@@ -418,10 +375,10 @@ verify_connection() {
     echo '路由检查: 未能解析目标路由，请确认 VPN 已连接'
   fi
 
-  if check_tcp_port "$TARGET_HOST" "$TARGET_PORT"; then
-    echo "端口检查: ${TARGET_HOST}:${TARGET_PORT} 可达"
+  if check_tcp_port "$host" "$port"; then
+    echo "端口检查: ${host}:${port} 可达"
   else
-    echo "端口检查: ${TARGET_HOST}:${TARGET_PORT} 不可达" >&2
+    echo "端口检查: ${host}:${port} 不可达" >&2
     return 1
   fi
 }
@@ -448,13 +405,18 @@ check_tcp_port() {
 
 ssh_target() {
   require_tool ssh
-  require_value TARGET_HOST "未设置 TARGET_HOST，无法发起 SSH 连接"
+
+  local host port user
+  host="$(target_host)"
+  port="$(target_port)"
+  user="$(target_user)"
+  [[ -n "$host" ]] || error "未设置 [ssh].target_host，无法发起 SSH 连接"
 
   if ! is_connected; then
     error 'VPN 未连接，请先执行 connect'
   fi
 
-  exec ssh -p "$TARGET_PORT" "${TARGET_SSH_USER}@${TARGET_HOST}"
+  exec ssh -p "$port" "${user}@${host}"
 }
 
 show_logs() {

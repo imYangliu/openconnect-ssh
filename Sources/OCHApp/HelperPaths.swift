@@ -2,15 +2,12 @@ import Foundation
 
 enum HelperKind: String, CaseIterable {
     case och
-    case ochVpn
     case askpass
 
     var displayName: String {
         switch self {
         case .och:
             return "och"
-        case .ochVpn:
-            return "och-vpn"
         case .askpass:
             return "och-sudo-askpass.sh"
         }
@@ -20,8 +17,6 @@ enum HelperKind: String, CaseIterable {
         switch self {
         case .och:
             return "bin/och"
-        case .ochVpn:
-            return "libexec/och/och-vpn.sh"
         case .askpass:
             return "libexec/och/och-sudo-askpass.sh"
         }
@@ -36,11 +31,10 @@ struct HelperPathResolution {
 
 struct ResolvedHelperPaths {
     let och: HelperPathResolution
-    let ochVpn: HelperPathResolution
     let askpass: HelperPathResolution
 
     var all: [HelperPathResolution] {
-        [och, ochVpn, askpass]
+        [och, askpass]
     }
 }
 
@@ -56,7 +50,6 @@ enum HelperPathResolver {
     static func resolveAll() throws -> ResolvedHelperPaths {
         ResolvedHelperPaths(
             och: try resolve(.och),
-            ochVpn: try resolve(.ochVpn),
             askpass: try resolve(.askpass)
         )
     }

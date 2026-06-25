@@ -44,7 +44,7 @@ enum SSHConfigManager {
           HostName \(config.targetHost)
           User \(config.targetUser)
           Port \(config.targetPort)
-          ProxyCommand \(ochPath) --proxy-command %h %p
+          ProxyCommand \(ochPath) proxy-command %h %p
           ServerAliveInterval 30
           ServerAliveCountMax 3
 

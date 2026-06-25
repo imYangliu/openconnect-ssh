@@ -2,55 +2,37 @@
 
 OCH 是一个 OpenConnect + SSH 辅助工具。它不会常驻后台保活，而是在你运行 `och <host>`、`ssh och-target` 或 GUI 连接时检查 VPN；如果 VPN 不可达，就按需尝试连接。
 
-本文面向最终用户，默认以 macOS GUI 为主。WSL/Linux 用户可以直接看“CLI-only 用法”和“WSL/Linux 注意事项”。配置文件字段、读取顺序和覆盖规则见 [配置文件说明](configuration.md)。
+本文面向 macOS GUI 和 Debian/Linux CLI。配置字段和严格解析规则见 [配置文件说明](configuration.md)。
 
 ## 安装
 
-先准备依赖：
+依赖：
 
 - macOS：`openconnect`、`ssh`、`sudo`、`nc`、系统 Keychain；构建 GUI 需要 Swift 6 / SwiftPM。
-- WSL/Linux：`openconnect`、`ssh`、`sudo`、`ip`；分流通常还需要 `vpn-slice` 或 `uvx`。
+- Debian/Linux：`openconnect`、`ssh`、`sudo`、`ip`。
 
-从源码安装命令：
+安装：
 
 ```bash
 sudo make install
 ```
 
-macOS Apple Silicon 默认安装到 `/opt/homebrew`，其他系统默认安装到 `/usr/local`。可以覆盖安装位置：
-
-```bash
-PREFIX=/path/to/prefix sudo make install
-```
+macOS Apple Silicon 默认安装到 `/opt/homebrew`，其他系统默认安装到 `/usr/local`。可以用 `PREFIX=/path/to/prefix sudo make install` 覆盖安装位置。
 
 ## macOS GUI 用法
-
-构建并启动 GUI：
 
 ```bash
 make build
 make run-gui
 ```
 
-在 GUI 中填写：
+在 GUI 中填写 VPN、SSH、额外路由、反向代理端口和语言。保存后会写入：
 
-- VPN：网关、用户、认证组和 VPN 密码。
-- SSH：托管 Host 名称、真实 HostName、SSH 用户和端口。
-- 路由与代理：额外 VPN CIDR 路由，以及 `och --proxy` 使用的反向端口映射。
-- 高级：语言、重新加载配置、删除已保存的 Keychain 密码。
-
-首次打开时，如果关键配置缺失，GUI 会弹出两步引导：
-
-1. 填写 VPN 网关、用户和密码，并可探测/选择认证组。探测不到认证组时，可以手动填写或留空。
-2. 选择已有 `~/.ssh/config` 中的 SSH Host，或手动输入目标主机。选择已有 Host 时，OCH 默认生成 `och-<原 Host>` 作为托管 Host，路由 CIDR 默认是目标 IPv4 的 `/32`，保存前可以改成更大的网段。
-
-点击“保存”后，GUI 会写入：
-
-- `~/.config/och/config.toml`：GUI 主配置。
+- `~/.config/och/config.toml`：严格 TOML 配置，不含密码。
 - `~/.ssh/och.config`：托管 SSH Host。
-- Keychain：VPN 密码，不写入配置文件。
+- Keychain：VPN 密码，service 为 `och`。
 
-`och` 和 `och-vpn` 也会读取这份 TOML 配置，所以 GUI 保存后可以直接配合 CLI 使用。GUI 自身始终使用 App bundle 内置的 `och`、`och-vpn` 和 `askpass` helper，不读取旧配置里的 helper 路径。
+如果关键配置缺失，GUI 会打开首次引导。选择已有 SSH Host 时，OCH 默认生成 `och-<原 Host>`，路由 CIDR 默认是目标 IPv4 的 `/32`。
 
 点击“安装 Include”后，GUI 会确保 `~/.ssh/config` 包含：
 
@@ -64,11 +46,9 @@ Include ~/.ssh/och.config
 ssh och-target
 ```
 
-也可以在 GUI 中点击“连接”“断开”“状态”来管理 VPN。
+GUI 使用 app bundle 内置 helper；不会读取或猜测配置里的 helper 路径。
 
 ## CLI-only 用法
-
-如果不使用 GUI，也使用同一份 TOML 配置。
 
 推荐先运行引导：
 
@@ -76,16 +56,12 @@ ssh och-target
 och setup
 ```
 
-引导会：
+引导会生成 `config.toml`、`~/.ssh/och.config`，并保存密码：
 
-- 询问 VPN 网关、用户、密码和认证组。
-- best-effort 调用 `openconnect --authenticate` 探测认证组；失败时允许手填或留空。
-- 从 `~/.ssh/config` 及可读 `Include` 文件列出可用 Host，也可以手动新建。
-- 选择已有 Host 后用 `ssh -G` 解析 `HostName`、`User` 和 `Port`，并默认生成 `och-<原 Host>`。
-- 根据目标 IPv4 默认生成 `/32` 路由 CIDR，保存前可以编辑。
-- macOS 上把 VPN 密码保存到 Keychain service `och`；Linux/WSL 不默认落盘保存密码。
+- macOS：Keychain。
+- Debian/Linux：`~/.config/och/secrets.env`，权限 `0600`。
 
-创建 `~/.config/och/config.toml`：
+最小配置示例：
 
 ```toml
 [vpn]
@@ -98,18 +74,30 @@ host = "och-target"
 target_host = "your-campus-host.example"
 user = "your-ssh-user"
 port = "22"
-```
 
-完整字段说明见 [配置文件说明](configuration.md)。CLI 密码建议放在当前目录 `.env` 或 `ENV_FILE=/path/to/private.env` 指向的私有覆盖文件里，不写入 `config.toml`。
+[routes]
+extra = []
+
+[proxy]
+local_host = "127.0.0.1"
+local_port = "7890"
+remote_port = "7890"
+
+[paths]
+# Runtime helper paths are fixed by the installed app or CLI layout.
+
+[app]
+language = "system"
+```
 
 常用命令：
 
 ```bash
-och-vpn connect
-och-vpn status
-och-vpn verify
-och-vpn logs
-och-vpn disconnect
+och vpn connect
+och vpn status
+och vpn verify
+och vpn logs
+och vpn disconnect
 ```
 
 通过 OCH 发起 SSH：
@@ -118,25 +106,22 @@ och-vpn disconnect
 och och-target
 och --proxy och-target
 och --proxy -N och-target
-```
-
-如果设置了 `DEFAULT_HOST`，也可以直接运行：
-
-```bash
 och
 och --proxy
 ```
 
+未传目标主机时，`och` 使用 `[ssh].host`。
+
 ## SSH 自动代理
 
-GUI 生成的 `~/.ssh/och.config` 类似：
+GUI 或 `och setup` 生成的 `~/.ssh/och.config` 类似：
 
 ```sshconfig
 Host och-target
   HostName your-campus-host.example
   User your-ssh-user
   Port 22
-  ProxyCommand /opt/homebrew/bin/och --proxy-command %h %p
+  ProxyCommand /opt/homebrew/bin/och proxy-command %h %p
   ServerAliveInterval 30
   ServerAliveCountMax 3
 ```
@@ -145,13 +130,9 @@ Host och-target
 
 ## 路由与代理
 
-macOS 默认使用 OpenConnect 自带的 `vpnc-script`，通常不需要配置 `VPN_ROUTES`。如果只想额外让某些网段走 VPN，配置：
+macOS 默认使用 OpenConnect 自带的 `vpnc-script`。如果 `[routes].extra` 有 CIDR，OCH 会通过内置 wrapper 把它们加到 OpenConnect tunnel。
 
-```bash
-MACOS_EXTRA_ROUTES="10.0.0.0/8 192.168.0.0/16"
-```
-
-GUI 中的“额外路由”会写入同等含义的配置。
+Debian/Linux 不自动选择第三方分流脚本。需要额外路由时，请使用系统网络策略、服务端下发路由，或在部署层显式配置 OpenConnect 脚本。
 
 `och --proxy` 会追加 SSH 反向端口映射，默认是：
 
@@ -159,47 +140,36 @@ GUI 中的“额外路由”会写入同等含义的配置。
 远端 7890 -> 本地 127.0.0.1:7890
 ```
 
-可以用这些变量调整：
+端口来自 `config.toml` 的 `[proxy]`。
+
+## 配置与 Secret
+
+`och` 默认读取 `~/.config/och/config.toml`，也可以用 `OCH_CONFIG_FILE` 指向其他 TOML 文件。
+
+CLI 只接受这些环境变量：
+
+- `OCH_CONFIG_FILE`
+- `OCH_SECRETS_FILE`
+- `VPN_PASSWORD`
+- `SUDO_ASKPASS`
+
+普通配置不能用环境变量覆盖。Linux secret 文件只允许：
 
 ```bash
-PROXY_LOCAL_HOST=127.0.0.1
-PROXY_LOCAL_PORT=7890
-PROXY_REMOTE_PORT=7890
+VPN_PASSWORD="your-vpn-password"
 ```
 
-## 配置读取顺序
-
-`och` 和 `och-vpn` 都默认读取 `~/.config/och/config.toml`，也可以用 `OCH_CONFIG_FILE` 指向其他 TOML 文件。随后会按 `ENV_FILE`、当前目录 `.env`、`PROJECT_ENV_FILE` 的顺序读取覆盖配置。
-
-详细规则和字段表见 [配置文件说明](configuration.md)。
-
-## WSL/Linux 注意事项
-
-WSL/Linux 不使用 macOS GUI 和 Keychain，按 CLI-only 方式配置即可：
+并且必须：
 
 ```bash
-sudo make install
-och-vpn connect
-och och-target
-```
-
-Linux 分流通常需要设置 `VPN_ROUTES`：
-
-```bash
-VPN_ROUTES="10.0.0.0/8 192.168.0.0/16"
-```
-
-如果你提供了自定义脚本，也可以设置：
-
-```bash
-VPN_SCRIPT_CMD="/usr/local/bin/vpn-slice 10.0.0.0/8"
+chmod 600 ~/.config/och/secrets.env
 ```
 
 ## 常见问题
 
-### 提示“未设置 VPN_HOST”或“未设置 VPN_USER”
+### 提示缺少 `[vpn].host` 或 `[vpn].user`
 
-检查 `~/.config/och/config.toml` 或当前目录 `.env` 是否填写了 VPN 网关和用户名。
+检查 `OCH_CONFIG_FILE` 指向的 TOML，并确保 `[vpn]` 中填写了 `host` 和 `user`。
 
 ### `ssh och-target` 没有走 OCH
 
@@ -209,22 +179,16 @@ VPN_SCRIPT_CMD="/usr/local/bin/vpn-slice 10.0.0.0/8"
 Include ~/.ssh/och.config
 ```
 
-再检查生成的 `~/.ssh/och.config` 里是否有 `ProxyCommand ... och --proxy-command %h %p`。
+再检查生成的 `~/.ssh/och.config` 里是否有 `ProxyCommand ... och proxy-command %h %p`。
 
-### Linux 上提示需要 `VPN_ROUTES`
+### Linux 上额外路由没有生效
 
-在 `~/.config/och/config.toml` 的 `[routes].extra` 中填写网段，或在 `.env` / `ENV_FILE` 中设置 `VPN_ROUTES`。需要自定义脚本时设置 `VPN_SCRIPT_CMD`。
-
-### macOS 上目标网段没有走 VPN
-
-优先检查 VPN 服务端是否下发了路由。如果只是需要额外网段，填写 `MACOS_EXTRA_ROUTES`，然后重新连接。
+OCH 不再自动选择分流脚本。检查 OpenConnect 服务端下发路由，或在系统/部署层显式配置路由策略。
 
 ### 连接失败但不知道原因
 
-查看最近日志：
-
 ```bash
-och-vpn logs
+och vpn logs
 ```
 
 默认日志文件是：
@@ -235,10 +199,8 @@ och-vpn logs
 
 ### 想确认目标是否可达
 
-运行：
-
 ```bash
-och-vpn verify
+och vpn verify
 ```
 
-它会显示默认路由、目标路由，并检查 `TARGET_HOST:TARGET_PORT` 是否可达。
+它会显示默认路由、目标路由，并检查配置的目标主机端口是否可达。

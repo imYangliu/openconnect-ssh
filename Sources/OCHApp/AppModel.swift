@@ -225,9 +225,10 @@ final class AppModel: ObservableObject {
         }
 
         isBusy = true
-        let executable = helperPaths.ochVpn.path
+        let executable = helperPaths.och.path
+        let commandArguments = ["vpn"] + arguments
         let environment = commandEnvironment(askpassPath: helperPaths.askpass.path, vpnPassword: vpnPassword)
-        append("$ \(executable) \(arguments.joined(separator: " "))")
+        append("$ \(executable) \(commandArguments.joined(separator: " "))")
         setConnectionStatus(L10n.tr("status.connection.running", language: config.appLanguage, arguments.joined(separator: " ")))
 
         Task {
@@ -235,7 +236,7 @@ final class AppModel: ObservableObject {
                 do {
                     return .success(try CommandRunner.run(
                         executable: executable,
-                        arguments: arguments,
+                        arguments: commandArguments,
                         environment: environment,
                         stdin: nil
                     ))

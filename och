@@ -3,26 +3,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [[ -z "${OCH_LIBEXEC_DIR:-}" ]]; then
-  if [[ -x "$SCRIPT_DIR/src/och.sh" ]]; then
-    OCH_LIBEXEC_DIR="$SCRIPT_DIR/src"
-  elif [[ -x "$SCRIPT_DIR/../libexec/och/och.sh" ]]; then
-    OCH_LIBEXEC_DIR="$SCRIPT_DIR/../libexec/och"
-  else
-    echo "Error: cannot find och implementation" >&2
-    exit 1
-  fi
+if [[ -x "$SCRIPT_DIR/rust-cli/target/debug/och" ]]; then
+  exec "$SCRIPT_DIR/rust-cli/target/debug/och" "$@"
 fi
 
-if [[ -z "${PROJECT_ENV_FILE:-}" && -r "$SCRIPT_DIR/.env" ]]; then
-  export PROJECT_ENV_FILE="$SCRIPT_DIR/.env"
+if command -v cargo >/dev/null 2>&1; then
+  exec cargo run --quiet --manifest-path "$SCRIPT_DIR/rust-cli/Cargo.toml" -- "$@"
 fi
 
-OCH_COMMAND_NAME="$(basename "$0")"
-export OCH_COMMAND_NAME
-
-if [[ -z "${CONNECT_SCRIPT:-}" ]]; then
-  export CONNECT_SCRIPT="$OCH_LIBEXEC_DIR/och-vpn.sh"
-fi
-
-exec "$OCH_LIBEXEC_DIR/och.sh" "$@"
+echo "Error: cannot find Rust OCH binary; run: cargo build --manifest-path $SCRIPT_DIR/rust-cli/Cargo.toml" >&2
+exit 1

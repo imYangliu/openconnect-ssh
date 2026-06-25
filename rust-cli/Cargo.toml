@@ -1,0 +1,17 @@
+[package]
+name = "och-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "och"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5.50", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.17"
+toml = "0.9.8"
+
+[dev-dependencies]
+tempfile = "3.23.0"

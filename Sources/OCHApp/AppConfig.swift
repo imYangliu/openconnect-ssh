@@ -155,7 +155,7 @@ enum TOMLConfigFile {
         if sawRoutes {
             config.extraRoutesText = routes.joined(separator: "\n")
         }
-        try validateRequiredKeys(seenKeys)
+        try validateRequiredKeys(seenKeys, config: config)
         return config
     }
 
@@ -189,9 +189,7 @@ enum TOMLConfigFile {
         "vpn.host",
         "vpn.user",
         "ssh.host",
-        "ssh.target_host",
-        "ssh.user",
-        "ssh.port"
+        "ssh.target_host"
     ]
 
     private static func apply(
@@ -232,8 +230,17 @@ enum TOMLConfigFile {
         }
     }
 
-    private static func validateRequiredKeys(_ seenKeys: Set<String>) throws {
+    private static func validateRequiredKeys(_ seenKeys: Set<String>, config: AppConfig) throws {
         for key in requiredKeys where !seenKeys.contains(key) {
+            throw TOMLConfigError.missingRequired(key)
+        }
+        let requiredValues = [
+            ("vpn.host", config.vpnHost),
+            ("vpn.user", config.vpnUser),
+            ("ssh.host", config.defaultHost),
+            ("ssh.target_host", config.targetHost)
+        ]
+        for (key, value) in requiredValues where value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw TOMLConfigError.missingRequired(key)
         }
     }
