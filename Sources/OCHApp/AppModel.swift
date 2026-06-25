@@ -5,12 +5,12 @@ final class AppModel: ObservableObject {
     @Published var config = AppConfig()
     @Published var vpnPassword = ""
     @Published var savePassword = true
-    @Published var yamlText = ""
+    @Published var configText = ""
     @Published var logText = ""
     @Published var isBusy = false
     @Published var includeInstalled = SSHConfigManager.mainConfigIncludesManagedFile()
 
-    private var lastSyncedYAML = ""
+    private var lastSyncedConfigText = ""
 
     init() {
         loadConfiguration()
@@ -18,73 +18,68 @@ final class AppModel: ObservableObject {
 
     func loadConfiguration() {
         do {
-            if FileManager.default.fileExists(atPath: ConfigPaths.guiYAML.path) {
-                config = try YAMLConfigFile.load(from: ConfigPaths.guiYAML)
-                append("Loaded config: \(ConfigPaths.guiYAML.path)")
-            } else {
-                config = try EnvFile.load(from: ConfigPaths.guiEnv)
-                append("Loaded config: \(ConfigPaths.guiEnv.path)")
+            if FileManager.default.fileExists(atPath: ConfigPaths.configTOML.path) {
+                config = try TOMLConfigFile.load(from: ConfigPaths.configTOML)
+                append(L10n.tr("log.loaded_config", ConfigPaths.configTOML.path))
             }
-            refreshYAMLFromSettings(log: false)
+            refreshConfigTextFromSettings(log: false)
             if let password = try KeychainStore.readPassword(account: config.vpnUser) {
                 vpnPassword = password
             }
         } catch {
-            append("Load failed: \(error.localizedDescription)")
-            refreshYAMLFromSettings(log: false)
+            append(L10n.tr("log.load_failed", error.localizedDescription))
+            refreshConfigTextFromSettings(log: false)
         }
     }
 
     func saveConfiguration() {
         do {
             try synchronizeSettingsForSave()
-            try YAMLConfigFile.save(config, to: ConfigPaths.guiYAML)
-            try EnvFile.save(config, to: ConfigPaths.guiEnv)
+            try TOMLConfigFile.save(config, to: ConfigPaths.configTOML)
             try SSHConfigManager.writeManagedHost(config: config)
             if savePassword, !vpnPassword.isEmpty {
                 try KeychainStore.savePassword(vpnPassword, account: config.vpnUser)
             }
             includeInstalled = SSHConfigManager.mainConfigIncludesManagedFile()
-            append("Saved config: \(ConfigPaths.guiYAML.path)")
-            append("Updated env compatibility file: \(ConfigPaths.guiEnv.path)")
-            append("Updated SSH host: \(ConfigPaths.managedSSHConfig.path)")
+            append(L10n.tr("log.saved_config", ConfigPaths.configTOML.path))
+            append(L10n.tr("log.updated_ssh_host", ConfigPaths.managedSSHConfig.path))
         } catch {
-            append("Save failed: \(error.localizedDescription)")
+            append(L10n.tr("log.save_failed", error.localizedDescription))
         }
     }
 
-    func applyYAMLToSettings() {
+    func applyConfigTextToSettings() {
         do {
-            config = try YAMLConfigFile.parse(yamlText)
-            refreshYAMLFromSettings(log: false)
-            append("Applied YAML to settings")
+            config = try TOMLConfigFile.parse(configText)
+            refreshConfigTextFromSettings(log: false)
+            append(L10n.tr("log.applied_toml"))
         } catch {
-            append("YAML apply failed: \(error.localizedDescription)")
+            append(L10n.tr("log.toml_apply_failed", error.localizedDescription))
         }
     }
 
-    func refreshYAMLFromSettings(log: Bool = true) {
-        yamlText = YAMLConfigFile.render(config)
-        lastSyncedYAML = yamlText
+    func refreshConfigTextFromSettings(log: Bool = true) {
+        configText = TOMLConfigFile.render(config)
+        lastSyncedConfigText = configText
         if log {
-            append("Refreshed YAML from settings")
+            append(L10n.tr("log.refreshed_toml"))
         }
     }
 
-    func syncYAMLAfterSettingsChange() {
-        guard yamlText == lastSyncedYAML else {
+    func syncConfigTextAfterSettingsChange() {
+        guard configText == lastSyncedConfigText else {
             return
         }
-        refreshYAMLFromSettings(log: false)
+        refreshConfigTextFromSettings(log: false)
     }
 
     func deleteSavedPassword() {
         do {
             try KeychainStore.deletePassword(account: config.vpnUser)
             vpnPassword = ""
-            append("Removed VPN password from Keychain")
+            append(L10n.tr("log.removed_keychain_password"))
         } catch {
-            append("Keychain delete failed: \(error.localizedDescription)")
+            append(L10n.tr("log.keychain_delete_failed", error.localizedDescription))
         }
     }
 
@@ -93,22 +88,22 @@ final class AppModel: ObservableObject {
             try SSHConfigManager.writeManagedHost(config: config)
             try SSHConfigManager.ensureIncludeLine()
             includeInstalled = SSHConfigManager.mainConfigIncludesManagedFile()
-            append("Installed SSH Include: \(SSHConfigManager.includeLine)")
+            append(L10n.tr("log.installed_ssh_include", SSHConfigManager.includeLine))
         } catch {
-            append("SSH config update failed: \(error.localizedDescription)")
+            append(L10n.tr("log.ssh_config_update_failed", error.localizedDescription))
         }
     }
 
     func connect() {
         saveConfiguration()
         guard !config.vpnUser.isEmpty else {
-            append("VPN_USER is required")
+            append(L10n.tr("log.vpn_user_required"))
             return
         }
 
         let password = vpnPassword
         guard !password.isEmpty else {
-            append("VPN password is required. Enter it in the password field or save it to Keychain.")
+            append(L10n.tr("log.vpn_password_required"))
             return
         }
 
@@ -146,9 +141,9 @@ final class AppModel: ObservableObject {
             switch result {
             case .success(let commandResult):
                 append(commandResult.output.trimmingCharacters(in: .whitespacesAndNewlines))
-                append("Exit status: \(commandResult.status)")
+                append(L10n.tr("log.exit_status", commandResult.status))
             case .failure(let error):
-                append("Command failed: \(error.localizedDescription)")
+                append(L10n.tr("log.command_failed", error.localizedDescription))
             }
             isBusy = false
         }
@@ -156,17 +151,16 @@ final class AppModel: ObservableObject {
 
     private func commandEnvironment() -> [String: String] {
         [
-            "ENV_FILE": ConfigPaths.guiEnv.path,
-            "CONFIG_FILE": ConfigPaths.guiEnv.path,
+            "OCH_CONFIG_FILE": ConfigPaths.configTOML.path,
             "SUDO_ASKPASS": config.askpassPath
         ]
     }
 
     private func synchronizeSettingsForSave() throws {
-        if yamlText != lastSyncedYAML {
-            config = try YAMLConfigFile.parse(yamlText)
+        if configText != lastSyncedConfigText {
+            config = try TOMLConfigFile.parse(configText)
         }
-        refreshYAMLFromSettings(log: false)
+        refreshConfigTextFromSettings(log: false)
     }
 
     private func append(_ message: String) {

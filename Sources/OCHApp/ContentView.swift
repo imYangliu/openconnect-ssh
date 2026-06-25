@@ -3,6 +3,11 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var model = AppModel()
     @State private var selectedPane: AppPane = .connection
+    @AppStorage(AppLanguage.storageKey) private var appLanguageRawValue = AppLanguage.system.rawValue
+
+    private var appLanguage: AppLanguage {
+        AppLanguage(rawValue: appLanguageRawValue) ?? .system
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -18,10 +23,15 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(minWidth: 960, minHeight: 640, alignment: .topLeading)
+        .frame(
+            minWidth: UILayout.windowMinWidth,
+            minHeight: UILayout.windowMinHeight,
+            alignment: .topLeading
+        )
         .onChange(of: model.config) { _ in
-            model.syncYAMLAfterSettingsChange()
+            model.syncConfigTextAfterSettingsChange()
         }
+        .environment(\.locale, appLanguage.locale)
     }
 
     private var sidebar: some View {
@@ -30,7 +40,7 @@ struct ContentView: View {
                 Text("OCH")
                     .font(.title2)
                     .fontWeight(.semibold)
-                Text(ConfigPaths.guiYAML.path)
+                Text(verbatim: ConfigPaths.configTOML.path)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -43,7 +53,7 @@ struct ContentView: View {
                         selectedPane = pane
                     } label: {
                         HStack {
-                            Label(pane.title, systemImage: pane.systemImage)
+                            Label(pane.titleKey, systemImage: pane.systemImage)
                             Spacer()
                         }
                         .contentShape(Rectangle())
@@ -63,7 +73,7 @@ struct ContentView: View {
                 Button {
                     model.saveConfiguration()
                 } label: {
-                    Label("Save", systemImage: "square.and.arrow.down")
+                    Label("button.save", systemImage: "square.and.arrow.down")
                         .frame(maxWidth: .infinity)
                 }
                 .keyboardShortcut("s", modifiers: .command)
@@ -72,14 +82,14 @@ struct ContentView: View {
             }
         }
         .padding(18)
-        .frame(width: 230)
+        .frame(width: UILayout.sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var header: some View {
         HStack(spacing: 12) {
-            Label(selectedPane.title, systemImage: selectedPane.systemImage)
+            Label(selectedPane.titleKey, systemImage: selectedPane.systemImage)
                 .font(.headline)
 
             Spacer()
@@ -97,57 +107,69 @@ struct ContentView: View {
     }
 
     private var includeStatusLabel: some View {
-        Label(model.includeInstalled ? "SSH Include installed" : "SSH Include missing",
+        Label(includeStatusTitleKey,
               systemImage: model.includeInstalled ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
             .font(.caption)
             .foregroundStyle(model.includeInstalled ? .green : .orange)
             .lineLimit(1)
     }
 
+    private var includeStatusTitleKey: LocalizedStringKey {
+        model.includeInstalled ? "status.ssh_include.installed" : "status.ssh_include.missing"
+    }
+
     @ViewBuilder
     private var paneContent: some View {
         switch selectedPane {
         case .connection:
-            ScrollView {
+            scrollingPane {
                 connectionPane
             }
         case .ssh:
-            ScrollView {
+            scrollingPane {
                 sshPane
             }
         case .routes:
-            ScrollView {
+            scrollingPane {
                 routesPane
             }
         case .advanced:
-            ScrollView {
+            scrollingPane {
                 advancedPane
             }
-        case .yaml:
-            yamlPane
+        case .config:
+            configPane
         case .logs:
             logsPane
         }
     }
 
+    private func scrollingPane<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        ScrollView {
+            content()
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
     private var connectionPane: some View {
         SettingsStack {
-            FormSection("VPN", systemImage: "lock.shield") {
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-                    FieldRow("Gateway", text: $model.config.vpnHost)
-                    FieldRow("User", text: $model.config.vpnUser)
-                    FieldRow("Auth group", text: $model.config.vpnAuthGroup)
-                    SecureFieldRow("Password", text: $model.vpnPassword)
+            FormSection("section.vpn", systemImage: "lock.shield") {
+                FieldStack {
+                    FieldRow("field.gateway", text: $model.config.vpnHost)
+                    FieldRow("field.user", text: $model.config.vpnUser)
+                    FieldRow("field.auth_group", text: $model.config.vpnAuthGroup)
+                    SecureFieldRow("field.password", text: $model.vpnPassword)
                 }
 
-                Toggle("Save VPN password in Keychain", isOn: $model.savePassword)
+                Toggle("toggle.save_vpn_password", isOn: $model.savePassword)
             }
 
             HStack(spacing: 10) {
                 Button {
                     model.connect()
                 } label: {
-                    Label("Connect", systemImage: "bolt.horizontal.circle")
+                    Label("button.connect", systemImage: "bolt.horizontal.circle")
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(model.isBusy)
@@ -155,14 +177,14 @@ struct ContentView: View {
                 Button {
                     model.disconnect()
                 } label: {
-                    Label("Disconnect", systemImage: "xmark.circle")
+                    Label("button.disconnect", systemImage: "xmark.circle")
                 }
                 .disabled(model.isBusy)
 
                 Button {
                     model.refreshStatus()
                 } label: {
-                    Label("Status", systemImage: "waveform.path.ecg")
+                    Label("button.status", systemImage: "waveform.path.ecg")
                 }
                 .disabled(model.isBusy)
             }
@@ -171,12 +193,12 @@ struct ContentView: View {
 
     private var sshPane: some View {
         SettingsStack {
-            FormSection("Managed SSH Host", systemImage: "terminal") {
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-                    FieldRow("Host", text: $model.config.defaultHost)
-                    FieldRow("HostName", text: $model.config.targetHost)
-                    FieldRow("User", text: $model.config.targetUser)
-                    FieldRow("Port", text: $model.config.targetPort)
+            FormSection("section.managed_ssh_host", systemImage: "terminal") {
+                FieldStack {
+                    FieldRow("field.host", text: $model.config.defaultHost)
+                    FieldRow("field.hostname", text: $model.config.targetHost)
+                    FieldRow("field.user", text: $model.config.targetUser)
+                    FieldRow("field.port", text: $model.config.targetPort)
                 }
             }
 
@@ -184,7 +206,7 @@ struct ContentView: View {
                 Button {
                     model.installSSHInclude()
                 } label: {
-                    Label("Install Include", systemImage: "plus.square.on.square")
+                    Label("button.install_include", systemImage: "plus.square.on.square")
                 }
 
                 includeStatusLabel
@@ -194,18 +216,22 @@ struct ContentView: View {
 
     private var routesPane: some View {
         SettingsStack {
-            FormSection("Extra Routes", systemImage: "point.3.connected.trianglepath.dotted") {
+            FormSection("section.extra_routes", systemImage: "point.3.connected.trianglepath.dotted") {
                 TextEditor(text: $model.config.extraRoutesText)
                     .font(.system(.body, design: .monospaced))
                     .frame(minHeight: 130)
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.separator))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(.separator)
+                            .allowsHitTesting(false)
+                    }
             }
 
-            FormSection("Proxy", systemImage: "arrow.left.arrow.right") {
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-                    FieldRow("Local host", text: $model.config.proxyLocalHost)
-                    FieldRow("Local port", text: $model.config.proxyLocalPort)
-                    FieldRow("Remote port", text: $model.config.proxyRemotePort)
+            FormSection("section.proxy", systemImage: "arrow.left.arrow.right") {
+                FieldStack {
+                    FieldRow("field.local_host", text: $model.config.proxyLocalHost)
+                    FieldRow("field.local_port", text: $model.config.proxyLocalPort)
+                    FieldRow("field.remote_port", text: $model.config.proxyRemotePort)
                 }
             }
         }
@@ -213,8 +239,17 @@ struct ContentView: View {
 
     private var advancedPane: some View {
         SettingsStack {
-            FormSection("Paths", systemImage: "folder") {
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+            FormSection("section.language", systemImage: "globe") {
+                Picker("field.language", selection: $appLanguageRawValue) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.titleKey).tag(language.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            FormSection("section.paths", systemImage: "folder") {
+                FieldStack {
                     FieldRow("och", text: $model.config.ochPath)
                     FieldRow("och-vpn", text: $model.config.ochVpnPath)
                     FieldRow("askpass", text: $model.config.askpassPath)
@@ -225,46 +260,50 @@ struct ContentView: View {
                 Button {
                     model.deleteSavedPassword()
                 } label: {
-                    Label("Remove Keychain Password", systemImage: "key.slash")
+                    Label("button.remove_keychain_password", systemImage: "key.slash")
                 }
 
                 Button {
                     model.loadConfiguration()
                 } label: {
-                    Label("Reload", systemImage: "arrow.clockwise")
+                    Label("button.reload", systemImage: "arrow.clockwise")
                 }
             }
         }
     }
 
-    private var yamlPane: some View {
+    private var configPane: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Button {
-                    model.applyYAMLToSettings()
+                    model.applyConfigTextToSettings()
                 } label: {
-                    Label("Apply YAML", systemImage: "checkmark.square")
+                    Label("button.apply_toml", systemImage: "checkmark.square")
                 }
 
                 Button {
-                    model.refreshYAMLFromSettings()
+                    model.refreshConfigTextFromSettings()
                 } label: {
-                    Label("Sync From Settings", systemImage: "arrow.triangle.2.circlepath")
+                    Label("button.sync_from_settings", systemImage: "arrow.triangle.2.circlepath")
                 }
 
                 Spacer()
 
-                Text(ConfigPaths.guiYAML.path)
+                Text(verbatim: ConfigPaths.configTOML.path)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
 
-            TextEditor(text: $model.yamlText)
+            TextEditor(text: $model.configText)
                 .font(.system(.body, design: .monospaced))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.separator))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(.separator)
+                        .allowsHitTesting(false)
+                }
         }
         .padding(22)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -273,7 +312,7 @@ struct ContentView: View {
     private var logsPane: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Log")
+                Text("label.log")
                     .font(.headline)
                 Spacer()
                 if model.isBusy {
@@ -285,7 +324,11 @@ struct ContentView: View {
             TextEditor(text: $model.logText)
                 .font(.system(.body, design: .monospaced))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.separator))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(.separator)
+                        .allowsHitTesting(false)
+                }
         }
         .padding(22)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -297,25 +340,25 @@ private enum AppPane: CaseIterable, Identifiable {
     case ssh
     case routes
     case advanced
-    case yaml
+    case config
     case logs
 
     var id: Self { self }
 
-    var title: String {
+    var titleKey: LocalizedStringKey {
         switch self {
         case .connection:
-            return "Connection"
+            return "pane.connection"
         case .ssh:
-            return "SSH"
+            return "pane.ssh"
         case .routes:
-            return "Routes & Proxy"
+            return "pane.routes"
         case .advanced:
-            return "Advanced"
-        case .yaml:
-            return "YAML"
+            return "pane.advanced"
+        case .config:
+            return "pane.config"
         case .logs:
-            return "Logs"
+            return "pane.logs"
         }
     }
 
@@ -329,7 +372,7 @@ private enum AppPane: CaseIterable, Identifiable {
             return "point.3.connected.trianglepath.dotted"
         case .advanced:
             return "slider.horizontal.3"
-        case .yaml:
+        case .config:
             return "doc.plaintext"
         case .logs:
             return "list.bullet.rectangle"
@@ -345,24 +388,25 @@ private struct SettingsStack<Content: View>: View {
             content
         }
         .padding(24)
-        .frame(maxWidth: 720, alignment: .topLeading)
+        .frame(maxWidth: UILayout.settingsMaxWidth, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 
 private struct FormSection<Content: View>: View {
-    let title: String
+    let titleKey: LocalizedStringKey
     let systemImage: String
     @ViewBuilder let content: Content
 
-    init(_ title: String, systemImage: String, @ViewBuilder content: () -> Content) {
-        self.title = title
+    init(_ titleKey: LocalizedStringKey, systemImage: String, @ViewBuilder content: () -> Content) {
+        self.titleKey = titleKey
         self.systemImage = systemImage
         self.content = content()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: systemImage)
+            Label(titleKey, systemImage: systemImage)
                 .font(.headline)
             content
         }
@@ -370,44 +414,57 @@ private struct FormSection<Content: View>: View {
     }
 }
 
+private struct FieldStack<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 private struct FieldRow: View {
-    let title: String
+    let titleKey: LocalizedStringKey
     @Binding var text: String
 
-    init(_ title: String, text: Binding<String>) {
-        self.title = title
+    init(_ titleKey: LocalizedStringKey, text: Binding<String>) {
+        self.titleKey = titleKey
         self._text = text
     }
 
     var body: some View {
-        GridRow {
-            Text(title)
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(titleKey)
                 .foregroundStyle(.secondary)
-                .frame(width: 108, alignment: .trailing)
-            TextField(title, text: $text)
+                .frame(width: UILayout.labelWidth, alignment: .trailing)
+            TextField(titleKey, text: $text)
                 .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 300)
+                .frame(minWidth: UILayout.textFieldMinWidth, maxWidth: .infinity)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 private struct SecureFieldRow: View {
-    let title: String
+    let titleKey: LocalizedStringKey
     @Binding var text: String
 
-    init(_ title: String, text: Binding<String>) {
-        self.title = title
+    init(_ titleKey: LocalizedStringKey, text: Binding<String>) {
+        self.titleKey = titleKey
         self._text = text
     }
 
     var body: some View {
-        GridRow {
-            Text(title)
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(titleKey)
                 .foregroundStyle(.secondary)
-                .frame(width: 108, alignment: .trailing)
-            SecureField(title, text: $text)
+                .frame(width: UILayout.labelWidth, alignment: .trailing)
+            SecureField(titleKey, text: $text)
                 .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 300)
+                .frame(minWidth: UILayout.textFieldMinWidth, maxWidth: .infinity)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

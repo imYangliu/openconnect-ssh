@@ -1,0 +1,66 @@
+"language.system" = "跟随系统";
+"language.english" = "English";
+"language.zh_hans" = "中文";
+
+"pane.connection" = "连接";
+"pane.ssh" = "SSH";
+"pane.routes" = "路由与代理";
+"pane.advanced" = "高级";
+"pane.config" = "TOML";
+"pane.logs" = "日志";
+
+"status.ssh_include.installed" = "SSH Include 已安装";
+"status.ssh_include.missing" = "SSH Include 缺失";
+
+"section.vpn" = "VPN";
+"section.managed_ssh_host" = "托管 SSH Host";
+"section.extra_routes" = "额外路由";
+"section.proxy" = "代理";
+"section.paths" = "路径";
+"section.language" = "语言";
+
+"field.gateway" = "网关";
+"field.user" = "用户";
+"field.auth_group" = "认证组";
+"field.password" = "密码";
+"field.host" = "Host";
+"field.hostname" = "HostName";
+"field.port" = "端口";
+"field.local_host" = "本地地址";
+"field.local_port" = "本地端口";
+"field.remote_port" = "远端端口";
+"field.language" = "语言";
+
+"toggle.save_vpn_password" = "将 VPN 密码保存到 Keychain";
+
+"button.save" = "保存";
+"button.connect" = "连接";
+"button.disconnect" = "断开";
+"button.status" = "状态";
+"button.install_include" = "安装 Include";
+"button.remove_keychain_password" = "删除 Keychain 密码";
+"button.reload" = "重新加载";
+"button.apply_toml" = "应用 TOML";
+"button.sync_from_settings" = "从设置同步";
+
+"label.log" = "日志";
+
+"log.loaded_config" = "已加载配置：%@";
+"log.load_failed" = "加载失败：%@";
+"log.saved_config" = "已保存配置：%@";
+"log.updated_ssh_host" = "已更新 SSH Host：%@";
+"log.save_failed" = "保存失败：%@";
+"log.applied_toml" = "已将 TOML 应用到设置";
+"log.toml_apply_failed" = "应用 TOML 失败：%@";
+"log.refreshed_toml" = "已从设置刷新 TOML";
+"log.removed_keychain_password" = "已从 Keychain 删除 VPN 密码";
+"log.keychain_delete_failed" = "删除 Keychain 项失败：%@";
+"log.installed_ssh_include" = "已安装 SSH Include：%@";
+"log.ssh_config_update_failed" = "更新 SSH 配置失败：%@";
+"log.vpn_user_required" = "必须填写 VPN_USER";
+"log.vpn_password_required" = "必须填写 VPN 密码。请在密码字段中输入，或将它保存到 Keychain。";
+"log.exit_status" = "退出状态：%d";
+"log.command_failed" = "命令失败：%@";
+
+"error.toml.invalid_line" = "第 %d 行 TOML 无效：%@";
+"error.toml.invalid_section" = "第 %d 行 TOML section 无效：%@";

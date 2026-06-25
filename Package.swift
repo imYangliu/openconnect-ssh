@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "OCH",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v13)
     ],
@@ -14,6 +15,9 @@ let package = Package(
         .executableTarget(
             name: "OCHApp",
             path: "Sources/OCHApp",
+            resources: [
+                .process("Resources")
+            ],
             linkerSettings: [
                 .linkedFramework("Security")
             ]

@@ -4,18 +4,32 @@ set -euo pipefail
 PATH="/sbin:/usr/sbin:$PATH"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+load_och_config_helper() {
+  local helper
+  for helper in "$SCRIPT_DIR/och-config.sh" "$SCRIPT_DIR/../libexec/och/och-config.sh"; do
+    if [[ -r "$helper" ]]; then
+      # shellcheck disable=SC1090
+      source "$helper"
+      return 0
+    fi
+  done
+  echo "Error: cannot find och-config.sh" >&2
+  exit 1
+}
+
 : "${VPN_HOST:=}"
 : "${VPN_USER:=}"
 : "${VPN_AUTHGROUP:=}"
 : "${TARGET_HOST:=}"
-: "${TARGET_CIDR:=}"
 : "${TARGET_PORT:=22}"
 : "${TARGET_SSH_USER:=${USER:-root}}"
 : "${OPENCONNECT_BIN:=$(command -v openconnect 2>/dev/null || printf 'openconnect')}"
 : "${PID_FILE:=/tmp/och-openconnect-${USER}.pid}"
 : "${LOG_FILE:=/tmp/och-openconnect-${USER}.log}"
-: "${CONFIG_FILE:=$HOME/.config/och/och-vpn.env}"
+: "${OCH_CONFIG_FILE:=$HOME/.config/och/config.toml}"
 : "${OS_NAME:=$(uname -s)}"
+
+load_och_config_helper
 
 load_env_file() {
   local env_file="$1"
@@ -27,9 +41,8 @@ load_env_file() {
   set +a
 }
 
-if [[ -r "$CONFIG_FILE" ]]; then
-  # shellcheck disable=SC1090
-  source "$CONFIG_FILE"
+if [[ -r "$OCH_CONFIG_FILE" ]]; then
+  load_och_toml_file "$OCH_CONFIG_FILE"
 fi
 
 if [[ -n "${ENV_FILE:-}" ]]; then
@@ -40,7 +53,7 @@ elif [[ -n "${PROJECT_ENV_FILE:-}" ]]; then
   load_env_file "$PROJECT_ENV_FILE"
 fi
 
-: "${VPN_ROUTES:=${TARGET_CIDR:-}}"
+: "${VPN_ROUTES:=}"
 
 usage() {
   cat <<EOF
@@ -64,14 +77,13 @@ OCH AnyConnect / OpenConnect 单机连接脚本
   VPN_AUTHGROUP    可选认证组；部分网关需要
   TARGET_HOST      目标主机；verify / ssh 需要
   VPN_ROUTES       分流网段列表；Linux 上使用 vpn-slice/uvx 时需要
-  TARGET_CIDR      兼容旧变量；未设置 VPN_ROUTES 时也可用
   TARGET_PORT      目标端口，默认 ${TARGET_PORT}
   TARGET_SSH_USER  SSH 用户，默认 ${TARGET_SSH_USER}
   OPENCONNECT_BIN  openconnect 可执行文件，默认 ${OPENCONNECT_BIN}
   VPN_SCRIPT_CMD   可选；覆盖 OpenConnect vpnc-script 命令
   MACOS_EXTRA_ROUTES macOS 上额外走 VPN 的 CIDR 列表
   VPN_PASSWORD     可选；未设置时会静默提示输入
-  CONFIG_FILE      可选；默认 ${CONFIG_FILE}，可放 VPN_PASSWORD 等私密配置
+  OCH_CONFIG_FILE  OCH TOML 配置文件，默认 ${OCH_CONFIG_FILE}
   PID_FILE         PID 文件路径，默认 ${PID_FILE}
   LOG_FILE         日志文件路径，默认 ${LOG_FILE}
 
@@ -276,10 +288,10 @@ connect_vpn() {
   else
     require_tool ip
   fi
-  require_value VPN_HOST "未设置 VPN_HOST，请在 ${CONFIG_FILE} 或环境变量中配置"
-  require_value VPN_USER "未设置 VPN_USER，请在 ${CONFIG_FILE} 或环境变量中配置"
+  require_value VPN_HOST "未设置 VPN_HOST，请在 ${OCH_CONFIG_FILE} 或环境变量中配置"
+  require_value VPN_USER "未设置 VPN_USER，请在 ${OCH_CONFIG_FILE} 或环境变量中配置"
   if ! is_macos && [[ -z "${VPN_SCRIPT_CMD:-}" ]]; then
-    require_value VPN_ROUTES "未设置 VPN_ROUTES，请在 ${CONFIG_FILE} 或环境变量中配置"
+    require_value VPN_ROUTES "未设置 VPN_ROUTES，请在 ${OCH_CONFIG_FILE} 或环境变量中配置"
   fi
 
   if is_connected; then

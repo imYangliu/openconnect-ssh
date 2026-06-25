@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WRAPPER_CONFIG_FILE="${WRAPPER_CONFIG_FILE:-$HOME/.config/och/och.env}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OCH_CONFIG_FILE="${OCH_CONFIG_FILE:-$HOME/.config/och/config.toml}"
 OCH_COMMAND_NAME="${OCH_COMMAND_NAME:-$(basename "$0")}"
+
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/och-config.sh"
 
 load_env_file() {
   local env_file="$1"
@@ -14,9 +18,8 @@ load_env_file() {
   set +a
 }
 
-if [[ -r "$WRAPPER_CONFIG_FILE" ]]; then
-  # shellcheck disable=SC1090
-  source "$WRAPPER_CONFIG_FILE"
+if [[ -r "$OCH_CONFIG_FILE" ]]; then
+  load_och_toml_file "$OCH_CONFIG_FILE"
 fi
 
 if [[ -n "${ENV_FILE:-}" ]]; then
@@ -68,7 +71,7 @@ usage() {
   ${OCH_COMMAND_NAME} --proxy-command %h %p
 
 环境变量:
-  WRAPPER_CONFIG_FILE och 配置文件，默认 ${WRAPPER_CONFIG_FILE}
+  OCH_CONFIG_FILE     OCH TOML 配置文件，默认 ${OCH_CONFIG_FILE}
   CONNECT_SCRIPT      VPN 连接脚本路径，默认 ${CONNECT_SCRIPT}
   DEFAULT_HOST        缺省 SSH 目标主机；未设置时必须显式传入目标主机
   PROXY_LOCAL_HOST    --proxy 映射到的本地地址，默认 ${PROXY_LOCAL_HOST}
@@ -289,7 +292,7 @@ main() {
 
   if ! destination=$(find_destination "${ssh_args[@]+"${ssh_args[@]}"}"); then
     if [[ -z "$DEFAULT_HOST" ]]; then
-      die "未提供目标主机，请传入 SSH host，或在 ${WRAPPER_CONFIG_FILE} 中设置 DEFAULT_HOST"
+      die "未提供目标主机，请传入 SSH host，或在 ${OCH_CONFIG_FILE} 中设置 ssh.host"
     fi
     destination="$DEFAULT_HOST"
     ssh_args+=("$destination")

@@ -2,6 +2,7 @@ SHELL := /bin/bash
 
 SHELL_SCRIPTS := \
 	och \
+	src/och-config.sh \
 	src/och.sh \
 	src/och-vpn.sh \
 	src/macos-vpnc-route-wrapper.sh \
@@ -55,9 +56,8 @@ smoke:
 		./och --help >/dev/null; \
 		: >"$$tmpdir/empty.env"; \
 		set +e; \
-		WRAPPER_CONFIG_FILE="$$tmpdir/empty.env" \
+		OCH_CONFIG_FILE="$$tmpdir/missing.toml" \
 		ENV_FILE="$$tmpdir/empty.env" \
-		CONFIG_FILE="$$tmpdir/empty.env" \
 		./och --proxy-command 127.0.0.1 22 >"$$tmpdir/proxy-command.log" 2>&1; \
 		status=$$?; \
 		set -e; \

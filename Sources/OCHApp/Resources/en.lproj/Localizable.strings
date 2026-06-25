@@ -1,0 +1,66 @@
+"language.system" = "Follow System";
+"language.english" = "English";
+"language.zh_hans" = "中文";
+
+"pane.connection" = "Connection";
+"pane.ssh" = "SSH";
+"pane.routes" = "Routes & Proxy";
+"pane.advanced" = "Advanced";
+"pane.config" = "TOML";
+"pane.logs" = "Logs";
+
+"status.ssh_include.installed" = "SSH Include installed";
+"status.ssh_include.missing" = "SSH Include missing";
+
+"section.vpn" = "VPN";
+"section.managed_ssh_host" = "Managed SSH Host";
+"section.extra_routes" = "Extra Routes";
+"section.proxy" = "Proxy";
+"section.paths" = "Paths";
+"section.language" = "Language";
+
+"field.gateway" = "Gateway";
+"field.user" = "User";
+"field.auth_group" = "Auth group";
+"field.password" = "Password";
+"field.host" = "Host";
+"field.hostname" = "HostName";
+"field.port" = "Port";
+"field.local_host" = "Local host";
+"field.local_port" = "Local port";
+"field.remote_port" = "Remote port";
+"field.language" = "Language";
+
+"toggle.save_vpn_password" = "Save VPN password in Keychain";
+
+"button.save" = "Save";
+"button.connect" = "Connect";
+"button.disconnect" = "Disconnect";
+"button.status" = "Status";
+"button.install_include" = "Install Include";
+"button.remove_keychain_password" = "Remove Keychain Password";
+"button.reload" = "Reload";
+"button.apply_toml" = "Apply TOML";
+"button.sync_from_settings" = "Sync From Settings";
+
+"label.log" = "Log";
+
+"log.loaded_config" = "Loaded config: %@";
+"log.load_failed" = "Load failed: %@";
+"log.saved_config" = "Saved config: %@";
+"log.updated_ssh_host" = "Updated SSH host: %@";
+"log.save_failed" = "Save failed: %@";
+"log.applied_toml" = "Applied TOML to settings";
+"log.toml_apply_failed" = "TOML apply failed: %@";
+"log.refreshed_toml" = "Refreshed TOML from settings";
+"log.removed_keychain_password" = "Removed VPN password from Keychain";
+"log.keychain_delete_failed" = "Keychain delete failed: %@";
+"log.installed_ssh_include" = "Installed SSH Include: %@";
+"log.ssh_config_update_failed" = "SSH config update failed: %@";
+"log.vpn_user_required" = "VPN_USER is required";
+"log.vpn_password_required" = "VPN password is required. Enter it in the password field or save it to Keychain.";
+"log.exit_status" = "Exit status: %d";
+"log.command_failed" = "Command failed: %@";
+
+"error.toml.invalid_line" = "Invalid TOML at line %d: %@";
+"error.toml.invalid_section" = "Invalid TOML section at line %d: %@";
