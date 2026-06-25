@@ -329,7 +329,7 @@ impl TuiState {
             Pane::Routes => 6,
             Pane::Service => 4,
             Pane::Config => 3,
-            Pane::Logs => 2,
+            Pane::Logs => 1,
         }
     }
 
@@ -861,57 +861,140 @@ fn render_sidebar(frame: &mut Frame, area: Rect, state: &TuiState) {
 
 fn render_overview(frame: &mut Frame, area: Rect, state: &TuiState) {
     let include = main_config_includes_managed(&state.paths.main_ssh_config);
-    let rows = vec![
-        action_line(0, state.active, "刷新 VPN 状态", &state.connection_summary),
-        action_line(1, state.active, "刷新服务状态", &state.service_summary),
-        action_line(
-            2,
-            state.active,
-            "安装 SSH Include",
-            if include { "已安装" } else { "未安装" },
-        ),
-        action_line(
-            3,
-            state.active,
-            "保存配置",
-            &state.paths.config_file.display().to_string(),
-        ),
-        Line::raw(""),
-        Line::from(format!(
-            "VPN: {} / {}",
-            empty_dash(&state.config.vpn_host),
-            empty_dash(&state.config.vpn_user)
-        )),
-        Line::from(format!(
-            "SSH: {}",
-            if state.ssh_enabled {
-                format!("{} -> {}", state.config.ssh_host, state.config.target_host)
-            } else {
-                "disabled".to_string()
-            }
-        )),
-        Line::from(format!("Routes mode: {}", state.config.routes_mode)),
-    ];
-    render_lines(frame, area, "Overview", rows);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(9), Constraint::Min(8)])
+        .split(area);
+    let cards = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(34),
+            Constraint::Percentage(33),
+            Constraint::Percentage(33),
+        ])
+        .split(chunks[0]);
+    render_lines(
+        frame,
+        cards[0],
+        "VPN",
+        vec![
+            Line::from(state.connection_summary.clone()),
+            Line::from(format!("Gateway: {}", empty_dash(&state.config.vpn_host))),
+            Line::from(format!("User: {}", empty_dash(&state.config.vpn_user))),
+            Line::from(format!("Target: {}", empty_dash(&state.config.target_host))),
+        ],
+    );
+    render_lines(
+        frame,
+        cards[1],
+        "Service",
+        vec![
+            Line::from(state.service_summary.clone()),
+            Line::from(format!(
+                "Auto refresh: {}",
+                if state.auto_refresh { "on" } else { "off" }
+            )),
+            Line::from("Manual: r refresh current page"),
+        ],
+    );
+    render_lines(
+        frame,
+        cards[2],
+        "Config / SSH",
+        vec![
+            Line::from(format!(
+                "Include: {}",
+                if include { "installed" } else { "missing" }
+            )),
+            Line::from(format!(
+                "SSH: {}",
+                if state.ssh_enabled {
+                    format!("{} -> {}", state.config.ssh_host, state.config.target_host)
+                } else {
+                    "disabled".to_string()
+                }
+            )),
+            Line::from(format!("Routes: {}", state.config.routes_mode)),
+            Line::from(format!("Config: {}", state.paths.config_file.display())),
+        ],
+    );
+
+    let lower = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(48), Constraint::Percentage(52)])
+        .split(chunks[1]);
+    render_lines(
+        frame,
+        lower[0],
+        "Actions",
+        vec![
+            action_line(0, state.active, "刷新 VPN 状态", &state.connection_summary),
+            action_line(1, state.active, "刷新服务状态", &state.service_summary),
+            action_line(
+                2,
+                state.active,
+                "安装 SSH Include",
+                if include { "已安装" } else { "未安装" },
+            ),
+            action_line(
+                3,
+                state.active,
+                "保存配置",
+                &state.paths.config_file.display().to_string(),
+            ),
+        ],
+    );
+    render_text(frame, lower[1], "Recent Logs", logs_or_placeholder(state));
 }
 
 fn render_connection(frame: &mut Frame, area: Rect, state: &TuiState) {
-    let rows = vec![
-        field_line(0, state.active, "VPN 网关", &state.config.vpn_host, false),
-        field_line(1, state.active, "VPN 用户", &state.config.vpn_user, false),
-        field_line(2, state.active, "VPN 密码", &state.vpn_password, true),
-        field_line(
-            3,
-            state.active,
-            "认证组",
-            &state.config.vpn_auth_group,
-            false,
-        ),
-        action_line(4, state.active, "连接 VPN", "och vpn connect"),
-        action_line(5, state.active, "断开 VPN", "och vpn disconnect"),
-        action_line(6, state.active, "探测认证组", "openconnect --authenticate"),
-    ];
-    render_lines(frame, area, "Connection", rows);
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+        .split(area);
+    render_lines(
+        frame,
+        chunks[0],
+        "Connection",
+        vec![
+            field_line(0, state.active, "VPN 网关", &state.config.vpn_host, false),
+            field_line(1, state.active, "VPN 用户", &state.config.vpn_user, false),
+            field_line(2, state.active, "VPN 密码", &state.vpn_password, true),
+            field_line(
+                3,
+                state.active,
+                "认证组",
+                &state.config.vpn_auth_group,
+                false,
+            ),
+            Line::raw(""),
+            action_line(4, state.active, "连接 VPN", "och vpn connect"),
+            action_line(5, state.active, "断开 VPN", "och vpn disconnect"),
+            action_line(6, state.active, "探测认证组", "openconnect --authenticate"),
+        ],
+    );
+    let side = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(8), Constraint::Min(8)])
+        .split(chunks[1]);
+    render_lines(
+        frame,
+        side[0],
+        "Status",
+        vec![
+            Line::from(state.connection_summary.clone()),
+            Line::from(format!(
+                "Target host: {}",
+                empty_dash(&state.config.target_host)
+            )),
+            Line::from(format!(
+                "Target port: {}",
+                empty_dash(&state.config.target_port)
+            )),
+            Line::from("Press r to refresh now"),
+        ],
+    );
+    render_text(frame, side[1], "Recent Logs", logs_or_placeholder(state));
 }
 
 fn render_ssh(frame: &mut Frame, area: Rect, state: &TuiState) {
@@ -982,64 +1065,98 @@ fn render_ssh(frame: &mut Frame, area: Rect, state: &TuiState) {
 }
 
 fn render_routes(frame: &mut Frame, area: Rect, state: &TuiState) {
-    let rows = vec![
-        field_line(
-            0,
-            state.active,
-            "Route mode",
-            &state.config.routes_mode,
-            false,
-        ),
-        field_line(
-            1,
-            state.active,
-            "Extra routes",
-            &state.extra_routes_text,
-            false,
-        ),
-        field_line(
-            2,
-            state.active,
-            "启用 Proxy",
-            yes_no(state.config.proxy_enabled),
-            false,
-        ),
-        field_line(
-            3,
-            state.active,
-            "Proxy local_host",
-            &state.config.proxy_local_host,
-            false,
-        ),
-        field_line(
-            4,
-            state.active,
-            "Proxy local_port",
-            &state.config.proxy_local_port,
-            false,
-        ),
-        field_line(
-            5,
-            state.active,
-            "Proxy remote_port",
-            &state.config.proxy_remote_port,
-            false,
-        ),
-    ];
-    render_lines(frame, area, "Routes & Proxy", rows);
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+        .split(area);
+    render_lines(
+        frame,
+        chunks[0],
+        "Routes & Proxy",
+        vec![
+            field_line(
+                0,
+                state.active,
+                "Route mode",
+                &state.config.routes_mode,
+                false,
+            ),
+            field_line(
+                1,
+                state.active,
+                "Extra routes",
+                &state.extra_routes_text,
+                false,
+            ),
+            field_line(
+                2,
+                state.active,
+                "启用 Proxy",
+                yes_no(state.config.proxy_enabled),
+                false,
+            ),
+            field_line(
+                3,
+                state.active,
+                "Proxy local_host",
+                &state.config.proxy_local_host,
+                false,
+            ),
+            field_line(
+                4,
+                state.active,
+                "Proxy local_port",
+                &state.config.proxy_local_port,
+                false,
+            ),
+            field_line(
+                5,
+                state.active,
+                "Proxy remote_port",
+                &state.config.proxy_remote_port,
+                false,
+            ),
+        ],
+    );
+    render_lines(
+        frame,
+        chunks[1],
+        "Route Summary",
+        vec![
+            Line::from(format!("Mode: {}", state.config.routes_mode)),
+            Line::from(format!("Extra route count: {}", route_count(state))),
+            Line::from(format!("Proxy: {}", yes_no(state.config.proxy_enabled))),
+            Line::from(format!(
+                "Local: {}:{}",
+                state.config.proxy_local_host, state.config.proxy_local_port
+            )),
+            Line::from(format!("Remote port: {}", state.config.proxy_remote_port)),
+            Line::raw(""),
+            Line::from("Auto refresh skips this page while editing."),
+        ],
+    );
 }
 
 fn render_service(frame: &mut Frame, area: Rect, state: &TuiState) {
-    let rows = vec![
-        action_line(0, state.active, "刷新状态", "och service status"),
-        action_line(1, state.active, "安装服务", "och service install"),
-        action_line(2, state.active, "卸载服务", "och service uninstall"),
-        action_line(3, state.active, "刷新日志", "och vpn logs"),
-        Line::raw(""),
-        Line::from(format!("最近服务状态: {}", state.service_summary)),
-        Line::from("非 macOS 或未 root 时，服务命令会直接显示不可用/权限错误。"),
-    ];
-    render_lines(frame, area, "Service", rows);
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(48), Constraint::Percentage(52)])
+        .split(area);
+    render_lines(
+        frame,
+        chunks[0],
+        "Service",
+        vec![
+            action_line(0, state.active, "刷新状态", "och service status"),
+            action_line(1, state.active, "安装服务", "och service install"),
+            action_line(2, state.active, "卸载服务", "och service uninstall"),
+            action_line(3, state.active, "刷新日志", "och vpn logs"),
+            Line::raw(""),
+            Line::from(format!("最近服务状态: {}", state.service_summary)),
+            Line::from("非 macOS 或未 root 时，服务命令会直接显示不可用/权限错误。"),
+        ],
+    );
+    render_text(frame, chunks[1], "Recent Logs", logs_or_placeholder(state));
 }
 
 fn render_config(frame: &mut Frame, area: Rect, state: &TuiState) {
@@ -1070,17 +1187,39 @@ fn render_config(frame: &mut Frame, area: Rect, state: &TuiState) {
 }
 
 fn render_logs(frame: &mut Frame, area: Rect, state: &TuiState) {
-    let rows = vec![
-        action_line(0, state.active, "刷新日志", "och vpn logs"),
-        action_line(1, state.active, "刷新日志", "同上"),
-        Line::raw(""),
-        Line::from(state.logs.clone()),
-    ];
-    render_lines(frame, area, "Logs", rows);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(4), Constraint::Min(8)])
+        .split(area);
+    render_lines(
+        frame,
+        chunks[0],
+        "Logs",
+        vec![
+            action_line(0, state.active, "刷新日志", "och vpn logs"),
+            Line::from(format!(
+                "Auto refresh: {} | r 刷新当前页 | a 开关自动刷新",
+                if state.auto_refresh { "on" } else { "off" }
+            )),
+        ],
+    );
+    render_text(
+        frame,
+        chunks[1],
+        "Runtime Log Tail",
+        logs_or_placeholder(state),
+    );
 }
 
 fn render_lines(frame: &mut Frame, area: Rect, title: &str, rows: Vec<Line<'static>>) {
     let widget = Paragraph::new(rows)
+        .block(Block::default().title(title).borders(Borders::ALL))
+        .wrap(Wrap { trim: false });
+    frame.render_widget(widget, area);
+}
+
+fn render_text(frame: &mut Frame, area: Rect, title: &str, text: String) {
+    let widget = Paragraph::new(text)
         .block(Block::default().title(title).borders(Borders::ALL))
         .wrap(Wrap { trim: false });
     frame.render_widget(widget, area);
@@ -1221,6 +1360,23 @@ fn empty_dash(value: &str) -> &str {
     }
 }
 
+fn logs_or_placeholder(state: &TuiState) -> String {
+    if state.logs.trim().is_empty() {
+        "暂无日志；按 r 或进入 Logs 页等待自动刷新。".to_string()
+    } else {
+        state.logs.clone()
+    }
+}
+
+fn route_count(state: &TuiState) -> usize {
+    state
+        .extra_routes_text
+        .split(|ch: char| ['\n', ' ', '\t', ','].contains(&ch))
+        .map(str::trim)
+        .filter(|route| !route.is_empty())
+        .count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1285,6 +1441,10 @@ mod tests {
         let text = format!("{:?}", terminal.backend().buffer());
         assert!(text.contains("Overview"));
         assert!(text.contains("Connection"));
+        assert!(text.contains("VPN"));
+        assert!(text.contains("Service"));
+        assert!(text.contains("Config / SSH"));
+        assert!(text.contains("Recent Logs"));
     }
 
     #[test]
@@ -1441,5 +1601,26 @@ mod tests {
         let text = format!("{:?}", terminal.backend().buffer());
         assert!(text.contains("Auto: off"));
         assert!(text.contains("r 刷新当前页"));
+    }
+
+    #[test]
+    fn logs_pane_uses_single_full_height_log_tail() {
+        let mut state = state_for_test();
+        state.pane = Pane::Logs;
+        state.logs = "line one\nline two".to_string();
+
+        state
+            .handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))
+            .unwrap();
+        assert_eq!(state.active, 0);
+
+        let backend = TestBackend::new(100, 28);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(frame, &state)).unwrap();
+        let text = format!("{:?}", terminal.backend().buffer());
+        assert!(text.contains("Runtime Log Tail"));
+        assert!(text.contains("line one"));
+        assert!(text.contains("Auto refresh: on"));
+        assert!(!text.contains("同上"));
     }
 }
