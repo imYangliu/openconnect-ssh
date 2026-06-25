@@ -1,12 +1,15 @@
 use crate::config::{load_secret_password, parse_config_str, OchConfig};
 use crate::setup;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+    MouseButton, MouseEvent, MouseEventKind,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Rect, Size};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Tabs, Wrap};
@@ -177,10 +180,12 @@ pub(crate) fn run() -> Result<(), String> {
     while !state.canceled {
         terminal.draw(|frame| render(frame, &state))?;
         if event::poll(EVENT_POLL_INTERVAL).map_err(|error| error.to_string())? {
-            let Event::Key(key) = event::read().map_err(|error| error.to_string())? else {
-                continue;
+            let result = match event::read().map_err(|error| error.to_string())? {
+                Event::Key(key) => state.handle_key(key),
+                Event::Mouse(mouse) => state.handle_mouse(mouse, terminal.size()?),
+                _ => Ok(()),
             };
-            if let Err(error) = state.handle_key(key) {
+            if let Err(error) = result {
                 state.status = error;
             }
         } else if let Err(error) = state.handle_tick(Instant::now()) {
@@ -198,7 +203,8 @@ impl TerminalSession {
     fn enter() -> Result<Self, String> {
         enable_raw_mode().map_err(|error| error.to_string())?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen).map_err(|error| error.to_string())?;
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
+            .map_err(|error| error.to_string())?;
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend).map_err(|error| error.to_string())?;
         Ok(Self { terminal })
@@ -213,12 +219,20 @@ impl TerminalSession {
             .map(|_| ())
             .map_err(|error| error.to_string())
     }
+
+    fn size(&self) -> Result<Size, String> {
+        self.terminal.size().map_err(|error| error.to_string())
+    }
 }
 
 impl Drop for TerminalSession {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
-        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
+        let _ = execute!(
+            self.terminal.backend_mut(),
+            DisableMouseCapture,
+            LeaveAlternateScreen
+        );
         let _ = self.terminal.show_cursor();
     }
 }
@@ -250,7 +264,8 @@ impl TuiState {
             config_text,
             logs: String::new(),
             status: warning.unwrap_or_else(|| {
-                "←/→ 切顶部页面，↑/↓ 或 Tab 切字段，Enter 执行，Ctrl-S 保存，Esc 退出".to_string()
+                "←/→ 切页面，↑/↓ 或 Tab 切字段，也可鼠标点击；Enter 执行，Ctrl-S 保存，Esc 退出"
+                    .to_string()
             }),
             paths,
             ssh_enabled,
@@ -330,6 +345,176 @@ impl TuiState {
             KeyCode::Char(ch) => self.push_char(ch),
             _ => Ok(()),
         }
+    }
+
+    fn handle_mouse(&mut self, mouse: MouseEvent, size: Size) -> Result<(), String> {
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                self.handle_left_click(mouse.column, mouse.row, screen_rect(size))
+            }
+            MouseEventKind::ScrollDown if self.pane == Pane::Ssh && self.active == 1 => {
+                self.next_list_item()
+            }
+            MouseEventKind::ScrollUp if self.pane == Pane::Ssh && self.active == 1 => {
+                self.previous_list_item()
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn handle_left_click(&mut self, x: u16, y: u16, area: Rect) -> Result<(), String> {
+        if self.confirm.is_some() {
+            self.status = "当前有待确认操作：Enter 确认，Esc 取消".to_string();
+            return Ok(());
+        }
+
+        let layout = root_layout(area);
+        if let Some(pane) = tab_at(layout.tabs, x, y) {
+            self.pane = pane;
+            self.active = 0;
+            self.status = self.pane_hint();
+            return Ok(());
+        }
+
+        match self.pane {
+            Pane::Overview => self.click_overview(layout.body, x, y),
+            Pane::Connection => self.click_connection(layout.body, x, y),
+            Pane::Ssh => self.click_ssh(layout.body, x, y),
+            Pane::Routes => self.click_routes(layout.body, x, y),
+            Pane::Service => self.click_service(layout.body, x, y),
+            Pane::Config => self.click_config(layout.body, x, y),
+            Pane::Logs => self.click_logs(layout.body, x, y),
+        }
+    }
+
+    fn click_overview(&mut self, area: Rect, x: u16, y: u16) -> Result<(), String> {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(9), Constraint::Min(8)])
+            .split(area);
+        let lower = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(48), Constraint::Percentage(52)])
+            .split(chunks[1]);
+        if let Some(row) = content_row(lower[0], x, y).filter(|row| *row < 4) {
+            self.active = row;
+            return self.enter();
+        }
+        Ok(())
+    }
+
+    fn click_connection(&mut self, area: Rect, x: u16, y: u16) -> Result<(), String> {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+            .split(area);
+        let Some(row) = content_row(chunks[0], x, y) else {
+            return Ok(());
+        };
+        let Some(active) = (match row {
+            0..=3 => Some(row),
+            5..=7 => Some(row - 1),
+            _ => None,
+        }) else {
+            return Ok(());
+        };
+        self.active = active;
+        if active >= 4 {
+            self.enter()
+        } else {
+            Ok(())
+        }
+    }
+
+    fn click_ssh(&mut self, area: Rect, x: u16, y: u16) -> Result<(), String> {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
+            .split(area);
+        if let Some(row) = content_row(chunks[0], x, y) {
+            let host_count = self.filtered_ssh_hosts().len().min(16);
+            if row < host_count {
+                self.active = 1;
+                self.selected_ssh = row;
+                return self.apply_selected_ssh_host();
+            }
+            self.active = 1;
+            return Ok(());
+        }
+        let Some(row) = content_row(chunks[1], x, y) else {
+            return Ok(());
+        };
+        let Some(active) = (match row {
+            0 => Some(0),
+            3..=6 => Some(row - 1),
+            _ => None,
+        }) else {
+            return Ok(());
+        };
+        self.active = active;
+        if active == 0 {
+            self.enter()
+        } else {
+            Ok(())
+        }
+    }
+
+    fn click_routes(&mut self, area: Rect, x: u16, y: u16) -> Result<(), String> {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+            .split(area);
+        let Some(row) = content_row(chunks[0], x, y).filter(|row| *row < 7) else {
+            return Ok(());
+        };
+        self.active = row;
+        if matches!(row, 0 | 2 | 6) {
+            self.enter()
+        } else {
+            Ok(())
+        }
+    }
+
+    fn click_service(&mut self, area: Rect, x: u16, y: u16) -> Result<(), String> {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(48), Constraint::Percentage(52)])
+            .split(area);
+        if let Some(row) = content_row(chunks[0], x, y).filter(|row| *row < 4) {
+            self.active = row;
+            return self.enter();
+        }
+        Ok(())
+    }
+
+    fn click_config(&mut self, area: Rect, x: u16, y: u16) -> Result<(), String> {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(4), Constraint::Min(8)])
+            .split(area);
+        if let Some(row) = content_row(chunks[0], x, y).filter(|row| *row < 3) {
+            self.active = row;
+            if row < 2 {
+                return self.enter();
+            }
+            return Ok(());
+        }
+        if rect_contains(chunks[1], x, y) {
+            self.active = 2;
+        }
+        Ok(())
+    }
+
+    fn click_logs(&mut self, area: Rect, x: u16, y: u16) -> Result<(), String> {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(4), Constraint::Min(8)])
+            .split(area);
+        if content_row(chunks[0], x, y) == Some(0) {
+            self.active = 0;
+            return self.enter();
+        }
+        Ok(())
     }
 
     fn handle_tick(&mut self, now: Instant) -> Result<(), String> {
@@ -903,30 +1088,22 @@ fn refresh_interval(pane: Pane, target: RefreshTarget) -> Duration {
 }
 
 fn render(frame: &mut Frame, state: &TuiState) {
-    let area = frame.area();
-    let root = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(12),
-            Constraint::Length(3),
-        ])
-        .split(area);
+    let root = root_layout(frame.area());
 
-    render_tabs(frame, root[0], state);
+    render_tabs(frame, root.tabs, state);
     match state.pane {
-        Pane::Overview => render_overview(frame, root[1], state),
-        Pane::Connection => render_connection(frame, root[1], state),
-        Pane::Ssh => render_ssh(frame, root[1], state),
-        Pane::Routes => render_routes(frame, root[1], state),
-        Pane::Service => render_service(frame, root[1], state),
-        Pane::Config => render_config(frame, root[1], state),
-        Pane::Logs => render_logs(frame, root[1], state),
+        Pane::Overview => render_overview(frame, root.body, state),
+        Pane::Connection => render_connection(frame, root.body, state),
+        Pane::Ssh => render_ssh(frame, root.body, state),
+        Pane::Routes => render_routes(frame, root.body, state),
+        Pane::Service => render_service(frame, root.body, state),
+        Pane::Config => render_config(frame, root.body, state),
+        Pane::Logs => render_logs(frame, root.body, state),
     }
     let footer = Paragraph::new(Line::from(vec![
         Span::styled(state.status.clone(), status_style(&state.status)),
         Span::styled(
-            " | ←/→ tabs | ↑/↓ fields | Tab next | Auto: ",
+            " | ←/→ tabs | ↑/↓ fields | click select | Tab next | Auto: ",
             theme::muted(),
         ),
         Span::styled(
@@ -941,7 +1118,30 @@ fn render(frame: &mut Frame, state: &TuiState) {
     ]))
     .block(panel_block("Status").borders(Borders::TOP))
     .wrap(Wrap { trim: true });
-    frame.render_widget(footer, root[2]);
+    frame.render_widget(footer, root.footer);
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RootLayout {
+    tabs: Rect,
+    body: Rect,
+    footer: Rect,
+}
+
+fn root_layout(area: Rect) -> RootLayout {
+    let root = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(12),
+            Constraint::Length(3),
+        ])
+        .split(area);
+    RootLayout {
+        tabs: root[0],
+        body: root[1],
+        footer: root[2],
+    }
 }
 
 fn render_tabs(frame: &mut Frame, area: Rect, state: &TuiState) {
@@ -960,6 +1160,46 @@ fn render_tabs(frame: &mut Frame, area: Rect, state: &TuiState) {
         .highlight_style(theme::selected_tab())
         .divider(Span::styled("  ", theme::muted()));
     frame.render_widget(tabs, area);
+}
+
+fn screen_rect(size: Size) -> Rect {
+    Rect::new(0, 0, size.width, size.height)
+}
+
+fn rect_contains(area: Rect, x: u16, y: u16) -> bool {
+    x >= area.x
+        && y >= area.y
+        && x < area.x.saturating_add(area.width)
+        && y < area.y.saturating_add(area.height)
+}
+
+fn content_row(area: Rect, x: u16, y: u16) -> Option<usize> {
+    if area.width < 2 || area.height < 2 || !rect_contains(area, x, y) {
+        return None;
+    }
+    let first_row = area.y.saturating_add(1);
+    let last_row = area.y.saturating_add(area.height.saturating_sub(1));
+    let inside_x = x > area.x && x < area.x.saturating_add(area.width.saturating_sub(1));
+    if inside_x && y >= first_row && y < last_row {
+        Some(usize::from(y - first_row))
+    } else {
+        None
+    }
+}
+
+fn tab_at(area: Rect, x: u16, y: u16) -> Option<Pane> {
+    if y != area.y.saturating_add(1) || !rect_contains(area, x, y) {
+        return None;
+    }
+    let mut cursor = area.x.saturating_add(1);
+    for pane in Pane::ALL {
+        let width = pane.title().chars().count() as u16;
+        if x >= cursor && x < cursor.saturating_add(width) {
+            return Some(pane);
+        }
+        cursor = cursor.saturating_add(width).saturating_add(2);
+    }
+    None
 }
 
 fn render_overview(frame: &mut Frame, area: Rect, state: &TuiState) {
@@ -1736,6 +1976,54 @@ mod tests {
     }
 
     #[test]
+    fn mouse_clicks_switch_tabs_focus_fields_and_toggle_rows() {
+        let mut state = state_for_test();
+        let size = Size::new(100, 28);
+
+        state
+            .handle_mouse(left_click(29, 1), size)
+            .expect("tab click should succeed");
+        assert_eq!(state.pane, Pane::Routes);
+        assert_eq!(state.active, 0);
+
+        state
+            .handle_mouse(left_click(2, 4), size)
+            .expect("route mode click should succeed");
+        assert_eq!(state.active, 0);
+        assert_eq!(state.config.routes_mode, "extra");
+
+        state
+            .handle_mouse(left_click(2, 5), size)
+            .expect("extra routes click should succeed");
+        assert_eq!(state.active, 1);
+        assert_eq!(state.config.routes_mode, "extra");
+
+        state.pane = Pane::Connection;
+        state.active = 4;
+        state
+            .handle_mouse(left_click(2, 6), size)
+            .expect("field click should succeed");
+        assert_eq!(state.active, 2);
+    }
+
+    #[test]
+    fn mouse_click_imports_ssh_host_from_list() {
+        let mut state = state_for_test();
+        let size = Size::new(100, 28);
+        state.pane = Pane::Ssh;
+        state.ssh_hosts = vec!["alpha".to_string(), "beta".to_string()];
+
+        state
+            .handle_mouse(left_click(2, 5), size)
+            .expect("host list click should succeed");
+
+        assert_eq!(state.active, 1);
+        assert_eq!(state.selected_ssh, 1);
+        assert!(state.ssh_enabled);
+        assert_eq!(state.config.ssh_host, setup::managed_alias("beta"));
+    }
+
+    #[test]
     fn parses_auth_groups_like_gui_and_shell() {
         let mut state = state_for_test();
         state.parse_and_set_auth_groups_for_test(
@@ -1844,5 +2132,14 @@ mod tests {
         assert!(text.contains("line one"));
         assert!(text.contains("Auto refresh: on"));
         assert!(!text.contains("同上"));
+    }
+
+    fn left_click(column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        }
     }
 }
