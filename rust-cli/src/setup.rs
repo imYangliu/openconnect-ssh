@@ -766,6 +766,9 @@ port = {}
 [routes]
 mode = {}
 extra = [{}]
+
+[dns]
+mode = {}
 {}
 [paths]
 # Runtime helper paths are fixed by the installed app or CLI layout.
@@ -782,6 +785,7 @@ language = {}
         quote_toml(&config.target_port),
         quote_toml(&config.routes_mode),
         routes,
+        quote_toml(&config.dns_mode),
         proxy_section,
         quote_toml(&config.app_language)
     )
@@ -1171,6 +1175,7 @@ mod tests {
             target_port: "22".to_string(),
             routes_mode: "extra".to_string(),
             routes_extra: vec!["10.2.3.4/32".to_string()],
+            dns_mode: "openconnect".to_string(),
             proxy_enabled: false,
             proxy_local_host: "127.0.0.1".to_string(),
             proxy_local_port: "7890".to_string(),

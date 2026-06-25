@@ -339,7 +339,7 @@ impl TuiState {
             Pane::Overview => 4,
             Pane::Connection => 7,
             Pane::Ssh => 6,
-            Pane::Routes => 6,
+            Pane::Routes => 7,
             Pane::Service => 4,
             Pane::Config => 3,
             Pane::Logs => 1,
@@ -384,6 +384,14 @@ impl TuiState {
                 }
                 2 => {
                     self.config.proxy_enabled = !self.config.proxy_enabled;
+                    Ok(())
+                }
+                6 => {
+                    self.config.dns_mode = if self.config.dns_mode == "ignore" {
+                        "openconnect".to_string()
+                    } else {
+                        "ignore".to_string()
+                    };
                     Ok(())
                 }
                 _ => Ok(()),
@@ -943,6 +951,7 @@ fn render_overview(frame: &mut Frame, area: Rect, state: &TuiState) {
                 }
             )),
             Line::from(format!("Routes: {}", state.config.routes_mode)),
+            Line::from(format!("DNS: {}", state.config.dns_mode)),
             Line::from(format!("Config: {}", state.paths.config_file.display())),
         ],
     );
@@ -1144,6 +1153,7 @@ fn render_routes(frame: &mut Frame, area: Rect, state: &TuiState) {
                 &state.config.proxy_remote_port,
                 false,
             ),
+            field_line(6, state.active, "DNS mode", &state.config.dns_mode, false),
         ],
     );
     render_lines(
@@ -1152,6 +1162,7 @@ fn render_routes(frame: &mut Frame, area: Rect, state: &TuiState) {
         "Route Summary",
         vec![
             Line::from(format!("Mode: {}", state.config.routes_mode)),
+            Line::from(format!("DNS: {}", state.config.dns_mode)),
             Line::from(format!("Extra route count: {}", route_count(state))),
             Line::from(format!("Proxy: {}", yes_no(state.config.proxy_enabled))),
             Line::from(format!(
@@ -1160,6 +1171,7 @@ fn render_routes(frame: &mut Frame, area: Rect, state: &TuiState) {
             )),
             Line::from(format!("Remote port: {}", state.config.proxy_remote_port)),
             Line::raw(""),
+            Line::from("Enter toggles route/proxy/DNS mode."),
             Line::from("Auto refresh skips this page while editing."),
         ],
     );
@@ -1422,6 +1434,7 @@ mod tests {
             target_port: "22".to_string(),
             routes_mode: "openconnect".to_string(),
             routes_extra: Vec::new(),
+            dns_mode: "openconnect".to_string(),
             proxy_enabled: false,
             proxy_local_host: "127.0.0.1".to_string(),
             proxy_local_port: "7890".to_string(),

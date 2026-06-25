@@ -8,6 +8,9 @@ struct AppConfigSmoke {
         host = "vpn.example.com"
         user = "alice"
 
+        [dns]
+        mode = "ignore"
+
         [paths]
         # empty section is accepted because helper paths are runtime-owned
 
@@ -15,7 +18,10 @@ struct AppConfigSmoke {
         language = "zh-Hans"
         """)
         expect(valid.vpnHost == "vpn.example.com", "vpn host")
+        expect(valid.dnsMode == .ignore, "dns mode")
         expect(valid.appLanguage == .zhHans, "language")
+        expect(TOMLConfigFile.render(valid).contains("[dns]"), "rendered dns section")
+        expect(TOMLConfigFile.render(valid).contains("mode = \"ignore\""), "rendered dns mode")
 
         do {
             _ = try TOMLConfigFile.parse("""

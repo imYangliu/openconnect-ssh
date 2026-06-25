@@ -4,6 +4,8 @@
 "language.zh_hant" = "繁體中文";
 "route_mode.openconnect" = "OpenConnect 預設";
 "route_mode.extra" = "額外路由";
+"dns_mode.openconnect" = "使用 OpenConnect DNS";
+"dns_mode.ignore" = "忽略下發 DNS";
 
 "value.yes" = "是";
 "value.no" = "否";
@@ -67,6 +69,7 @@
 "section.vpn" = "VPN";
 "section.managed_ssh_host" = "託管 SSH Host";
 "section.extra_routes" = "額外路由";
+"section.dns" = "DNS";
 "section.proxy" = "代理";
 "section.service_mode" = "macOS 服務模式";
 "section.service_raw_status" = "原始服務狀態";
@@ -85,6 +88,7 @@
 "field.language" = "語言";
 "field.route_cidr" = "路由 CIDR";
 "field.route_mode" = "路由模式";
+"field.dns_mode" = "DNS 模式";
 "field.service_installed" = "已安裝";
 "field.service_running" = "執行中";
 "field.registration_status" = "註冊狀態";
@@ -113,6 +117,7 @@
 "help.route_cidr" = "可選的額外 VPN 路由，例如單台主機使用 /32。留空則保持 OpenConnect 預設行為。";
 "help.extra_routes" = "填寫要加入 VPN tunnel 的 CIDR，每行一個，也可以用空格或逗號分隔。這不是直連繞過路由。";
 "help.extra_routes_inactive" = "目前為 OpenConnect 預設模式，這些 CIDR 會被保留但不會生效。";
+"help.dns_mode" = "使用 OpenConnect DNS 會允許 VPN 腳本更新系統 DNS。忽略下發 DNS 會在 macOS 上保留現有 DNS 設定。";
 "help.local_host" = "SSH 代理監聽的本機位址。";
 "help.proxy_optional" = "用於反向埠映射的可選相容設定。不需要舊版代理行為時保持關閉。";
 

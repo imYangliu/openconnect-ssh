@@ -4,6 +4,8 @@
 "language.zh_hant" = "繁體中文";
 "route_mode.openconnect" = "OpenConnect default";
 "route_mode.extra" = "Extra routes";
+"dns_mode.openconnect" = "Use OpenConnect DNS";
+"dns_mode.ignore" = "Ignore pushed DNS";
 
 "value.yes" = "Yes";
 "value.no" = "No";
@@ -67,6 +69,7 @@
 "section.vpn" = "VPN";
 "section.managed_ssh_host" = "Managed SSH Host";
 "section.extra_routes" = "Extra Routes";
+"section.dns" = "DNS";
 "section.proxy" = "Proxy";
 "section.service_mode" = "macOS Service Mode";
 "section.service_raw_status" = "Raw Service Status";
@@ -85,6 +88,7 @@
 "field.language" = "Language";
 "field.route_cidr" = "Route CIDR";
 "field.route_mode" = "Route mode";
+"field.dns_mode" = "DNS mode";
 "field.service_installed" = "Installed";
 "field.service_running" = "Running";
 "field.registration_status" = "Registration";
@@ -113,6 +117,7 @@
 "help.route_cidr" = "Optional extra VPN route, such as one host with /32. Leave blank to keep OpenConnect defaults.";
 "help.extra_routes" = "Enter CIDRs to add to the VPN tunnel, one per line or separated by spaces/commas. These are not direct bypass routes.";
 "help.extra_routes_inactive" = "These CIDRs are preserved but inactive while route mode is OpenConnect default.";
+"help.dns_mode" = "Use OpenConnect DNS to allow the VPN script to update system DNS. Ignore pushed DNS keeps your existing DNS settings on macOS.";
 "help.local_host" = "Local address for the SSH proxy listener.";
 "help.proxy_optional" = "Optional compatibility settings for reverse port mapping. Leave disabled unless you need the legacy proxy behavior.";
 

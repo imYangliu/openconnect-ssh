@@ -44,6 +44,9 @@ port = "22"
 mode = "openconnect"
 extra = ["10.0.0.0/8", "192.168.0.0/16"]
 
+[dns]
+mode = "openconnect"
+
 [paths]
 # Runtime helper paths are fixed by the installed app or CLI layout.
 
@@ -82,6 +85,14 @@ GUI、`och setup` 和 `och tui` 会在这些字段完整且 SSH 启用时生成 
 macOS 默认不接管 OpenConnect 路由。只有 `mode = "extra"` 且 `extra` 非空时，OCH 才会通过内置 route wrapper 把这些 CIDR 加到 OpenConnect tunnel。`extra` 不是直连绕过规则。
 
 Linux/Debian 不再自动选择第三方分流脚本。需要额外路由时，请使用系统网络策略、服务端下发路由，或在部署层显式配置 OpenConnect 脚本。
+
+### `[dns]`
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `mode` | 否 | `openconnect` 或 `ignore`；默认 `openconnect`，允许 OpenConnect/vpnc-script 按服务端下发 DNS 更新系统 DNS。`ignore` 会在 macOS wrapper 中忽略下发 DNS，保留现有系统 DNS。 |
+
+`ignore` 目前通过 macOS 内置 wrapper 生效；Linux/Debian 上请用系统网络策略或自定义 OpenConnect 脚本控制 DNS。
 
 ### `[proxy]`
 

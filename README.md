@@ -149,6 +149,8 @@ chmod 600 ~/.config/och/secrets.env
 
 macOS 默认保持 OpenConnect 原生路由行为。只有 `[routes].mode = "extra"` 且 `[routes].extra` 非空时，OCH 才会通过内置 wrapper 把这些 CIDR 额外加入 OpenConnect tunnel；这不是直连绕过规则。
 
+OpenConnect 下发的 DNS 默认会交给 vpnc-script 处理。macOS 上可设置 `[dns].mode = "ignore"`，让 OCH wrapper 忽略下发 DNS 并保留现有系统 DNS。
+
 Debian/Linux 不自动选择第三方分流脚本。需要额外加入 VPN tunnel 的路由时，请使用系统网络策略、服务端下发路由，或在部署层显式配置 OpenConnect 脚本。
 
 ## 开发入口

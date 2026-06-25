@@ -47,6 +47,9 @@ port = "2222"
 [routes]
 extra = ["10.0.0.0/8", "192.168.0.0/16"]
 
+[dns]
+mode = "ignore"
+
 [proxy]
 local_host = "127.0.0.1"
 local_port = "7897"
@@ -185,9 +188,21 @@ fi
 grep -q 'missing executable vpnc-script' "$TEST_TMP/vpnc.err" \
   || fail "missing vpnc-script error was unclear: $(<"$TEST_TMP/vpnc.err")"
 
+cat >"$TEST_TMP/base-vpnc-script" <<'EOF'
+#!/usr/bin/env bash
+printf '%s|%s|%s\n' "${INTERNAL_IP4_DNS-unset}" "${CISCO_DEF_DOMAIN-unset}" "${CISCO_SPLIT_DNS-unset}"
+EOF
+chmod +x "$TEST_TMP/base-vpnc-script"
+out="$(INTERNAL_IP4_DNS=10.0.0.53 CISCO_DEF_DOMAIN=vpn.example.com CISCO_SPLIT_DNS=corp.example.com bash -c "source '$ROOT_DIR/src/macos-vpnc-route-wrapper.sh'; VPNC_SCRIPT_BASE='$TEST_TMP/base-vpnc-script'; OCH_DNS_MODE=ignore; run_base_script")"
+[[ "$out" == "unset|unset|unset" ]] \
+  || fail "DNS ignore mode should strip pushed DNS environment before vpnc-script: $out"
+out="$(INTERNAL_IP4_DNS=10.0.0.53 CISCO_DEF_DOMAIN=vpn.example.com CISCO_SPLIT_DNS=corp.example.com bash -c "source '$ROOT_DIR/src/macos-vpnc-route-wrapper.sh'; VPNC_SCRIPT_BASE='$TEST_TMP/base-vpnc-script'; OCH_DNS_MODE=openconnect; run_base_script")"
+[[ "$out" == "10.0.0.53|vpn.example.com|corp.example.com" ]] \
+  || fail "OpenConnect DNS mode should preserve DNS environment for vpnc-script: $out"
+
 # --- TOML config parsing ---
-out="$(bash -c "source '$ROOT_DIR/src/och-config.sh'; load_och_toml_file '$TEST_TMP/config.toml'; printf '%s|%s|%s|%s|%s|%s|%s|%s' \"\$OCH_VPN_HOST\" \"\$OCH_SSH_HOST\" \"\$OCH_TARGET_HOST\" \"\$OCH_ROUTES_MODE\" \"\$OCH_ROUTES_EXTRA\" \"\$OCH_PROXY_ENABLED\" \"\$OCH_PROXY_LOCAL_PORT\" \"\$OCH_APP_LANGUAGE\"")"
-[[ "$out" == "vpn.example.com|och-target|10.0.0.10|extra|10.0.0.0/8 192.168.0.0/16|1|7897|system" ]] \
+out="$(bash -c "source '$ROOT_DIR/src/och-config.sh'; load_och_toml_file '$TEST_TMP/config.toml'; printf '%s|%s|%s|%s|%s|%s|%s|%s|%s' \"\$OCH_VPN_HOST\" \"\$OCH_SSH_HOST\" \"\$OCH_TARGET_HOST\" \"\$OCH_ROUTES_MODE\" \"\$OCH_ROUTES_EXTRA\" \"\$OCH_DNS_MODE\" \"\$OCH_PROXY_ENABLED\" \"\$OCH_PROXY_LOCAL_PORT\" \"\$OCH_APP_LANGUAGE\"")"
+[[ "$out" == "vpn.example.com|och-target|10.0.0.10|extra|10.0.0.0/8 192.168.0.0/16|ignore|1|7897|system" ]] \
   || fail "TOML config parse returned: $out"
 
 cat >"$TEST_TMP/openconnect-routes.toml" <<'EOF'
@@ -209,6 +224,12 @@ fi
 grep -q 'invalid routes.mode' "$TEST_TMP/bad-route-mode.err" \
   || fail "invalid routes.mode error was unclear: $(<"$TEST_TMP/bad-route-mode.err")"
 
+if bash -c "source '$ROOT_DIR/src/och-config.sh'; load_och_toml_file <(printf '%s\n' '[dns]' 'mode = \"system\"') 0" >/dev/null 2>"$TEST_TMP/bad-dns-mode.err"; then
+  fail "load_och_toml_file should reject invalid dns.mode"
+fi
+grep -q 'invalid dns.mode' "$TEST_TMP/bad-dns-mode.err" \
+  || fail "invalid dns.mode error was unclear: $(<"$TEST_TMP/bad-dns-mode.err")"
+
 out="$(bash -c "source '$ROOT_DIR/src/och-config.sh'; load_och_toml_file <(printf '%s\n' '[vpn]' 'host = \"vpn.example.com\"' 'user = \"vpn-user\"' '[app]' 'language = \"zh-Hant\"') 0; printf '%s|%s' \"\$OCH_APP_LANGUAGE\" \"\$OCH_PROXY_ENABLED\"")"
 [[ "$out" == "zh-Hant|0" ]] \
   || fail "app.language zh-Hant and omitted [proxy] should parse cleanly: $out"
@@ -225,6 +246,9 @@ out="$(OS_NAME=Darwin OCH_ROUTES_MODE=openconnect OCH_ROUTES_EXTRA='10.0.0.0/8' 
 out="$(OS_NAME=Darwin OCH_ROUTES_MODE=extra OCH_ROUTES_EXTRA='10.0.0.0/8' OCH_CONFIG_FILE="$TEST_TMP/missing.toml" OCH_SECRETS_FILE="$TEST_TMP/missing-secrets.env" bash -c "source '$ROOT_DIR/src/och-vpn.sh'; resolve_vpn_script")"
 [[ "$out" == *"macos-vpnc-route-wrapper.sh" ]] \
   || fail "resolve_vpn_script should enable wrapper in extra route mode: $out"
+out="$(OS_NAME=Darwin OCH_ROUTES_MODE=openconnect OCH_DNS_MODE=ignore OCH_CONFIG_FILE="$TEST_TMP/missing.toml" OCH_SECRETS_FILE="$TEST_TMP/missing-secrets.env" bash -c "source '$ROOT_DIR/src/och-vpn.sh'; resolve_vpn_script")"
+[[ "$out" == *"macos-vpnc-route-wrapper.sh" ]] \
+  || fail "resolve_vpn_script should enable wrapper when DNS mode ignores pushed DNS: $out"
 
 # --- Strict TOML rejects runtime path keys and unknown keys ---
 cat >"$TEST_TMP/config.toml" <<'EOF'
@@ -491,12 +515,18 @@ assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'var appLanguage: App
   "AppConfig should carry the GUI language preference"
 assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'var routeMode: AppRouteMode = \.openconnect' \
   "AppConfig should default to OpenConnect route mode"
+assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'var dnsMode: AppDNSMode = \.openconnect' \
+  "AppConfig should default to OpenConnect DNS behavior"
 assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'var proxyEnabled = false' \
   "AppConfig should default proxy settings to disabled"
 assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'mode = .*routeMode\.rawValue' \
   "rendered config.toml should persist routes.mode"
+assert_contains "$ROOT_DIR/Sources/OCHApp/AppConfig.swift" 'mode = .*dnsMode\.rawValue' \
+  "rendered config.toml should persist dns.mode"
 assert_contains "$ROOT_DIR/Sources/OCHApp/ContentView.swift" 'Picker\(tr\("field\.route_mode"\)' \
   "Routes pane should expose a route mode picker"
+assert_contains "$ROOT_DIR/Sources/OCHApp/ContentView.swift" 'Picker\(tr\("field\.dns_mode"\)' \
+  "Routes pane should expose a DNS mode picker"
 assert_contains "$ROOT_DIR/Sources/OCHApp/ContentView.swift" '\.disabled\(model\.config\.routeMode == \.openconnect\)' \
   "Extra routes editor should be inactive in OpenConnect route mode"
 # shellcheck disable=SC2016

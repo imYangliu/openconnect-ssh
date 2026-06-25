@@ -27,6 +27,8 @@ pub enum ConfigError {
     InvalidLanguage(String),
     #[error("invalid routes.mode: {0}")]
     InvalidRouteMode(String),
+    #[error("invalid dns.mode: {0}")]
+    InvalidDnsMode(String),
     #[error("missing required config value: {0}")]
     MissingRequired(&'static str),
     #[error("cannot read secrets file {path}: {source}")]
@@ -73,6 +75,7 @@ pub struct OchConfig {
     pub target_port: String,
     pub routes_mode: String,
     pub routes_extra: Vec<String>,
+    pub dns_mode: String,
     pub proxy_enabled: bool,
     pub proxy_local_host: String,
     pub proxy_local_port: String,
@@ -92,6 +95,7 @@ impl Default for OchConfig {
             target_port: "22".to_string(),
             routes_mode: "openconnect".to_string(),
             routes_extra: Vec::new(),
+            dns_mode: "openconnect".to_string(),
             proxy_enabled: false,
             proxy_local_host: "127.0.0.1".to_string(),
             proxy_local_port: "7890".to_string(),
@@ -106,6 +110,7 @@ struct TomlConfig {
     vpn: Option<VpnSection>,
     ssh: Option<SshSection>,
     routes: Option<RoutesSection>,
+    dns: Option<DnsSection>,
     proxy: Option<ProxySection>,
     app: Option<AppSection>,
     _paths: Option<toml::Table>,
@@ -130,6 +135,11 @@ struct SshSection {
 struct RoutesSection {
     mode: Option<String>,
     extra: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DnsSection {
+    mode: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -245,6 +255,14 @@ pub fn parse_config_str(
             config.routes_mode = "extra".to_string();
         }
     }
+    if let Some(dns) = parsed.dns {
+        if let Some(mode) = dns.mode {
+            match mode.as_str() {
+                "openconnect" | "ignore" => config.dns_mode = mode,
+                _ => return Err(ConfigError::InvalidDnsMode(mode)),
+            }
+        }
+    }
     if let Some(proxy) = parsed.proxy {
         config.proxy_enabled = true;
         config.proxy_local_host = proxy.local_host.unwrap_or_else(|| "127.0.0.1".to_string());
@@ -283,7 +301,7 @@ fn validate_keys(value: &toml::Value) -> Result<(), ConfigError> {
     let Some(table) = value.as_table() else {
         return Ok(());
     };
-    let allowed_sections = BTreeSet::from(["vpn", "ssh", "routes", "proxy", "app", "paths"]);
+    let allowed_sections = BTreeSet::from(["vpn", "ssh", "routes", "dns", "proxy", "app", "paths"]);
     for (section, section_value) in table {
         if !allowed_sections.contains(section.as_str()) {
             return Err(ConfigError::UnknownSection(section.clone()));
@@ -293,6 +311,7 @@ fn validate_keys(value: &toml::Value) -> Result<(), ConfigError> {
             "vpn" => BTreeSet::from(["host", "user", "auth_group"]),
             "ssh" => BTreeSet::from(["host", "target_host", "user", "port"]),
             "routes" => BTreeSet::from(["mode", "extra"]),
+            "dns" => BTreeSet::from(["mode"]),
             "proxy" => BTreeSet::from(["local_host", "local_port", "remote_port"]),
             "app" => BTreeSet::from(["language"]),
             "paths" => BTreeSet::new(),
@@ -423,6 +442,9 @@ port = "2222"
 mode = "extra"
 extra = ["10.0.0.0/8", "192.168.0.0/16"]
 
+[dns]
+mode = "ignore"
+
 [proxy]
 local_host = "127.0.0.1"
 local_port = "7897"
@@ -440,6 +462,7 @@ language = "zh-Hans"
         assert_eq!(config.ssh_host, "och-target");
         assert_eq!(config.routes_mode, "extra");
         assert_eq!(config.routes_extra, ["10.0.0.0/8", "192.168.0.0/16"]);
+        assert_eq!(config.dns_mode, "ignore");
         assert!(config.proxy_enabled);
         assert_eq!(config.proxy_local_port, "7897");
         assert_eq!(config.app_language, "zh-Hans");
@@ -523,6 +546,7 @@ user = "alice"
         assert_eq!(config.proxy_local_host, "127.0.0.1");
         assert_eq!(config.proxy_local_port, "7890");
         assert_eq!(config.proxy_remote_port, "7890");
+        assert_eq!(config.dns_mode, "openconnect");
     }
 
     #[test]
@@ -550,6 +574,14 @@ language = "zh-Hant"
             .unwrap_err()
             .to_string();
         assert!(error.contains("invalid routes.mode"));
+    }
+
+    #[test]
+    fn rejects_unknown_dns_mode() {
+        let error = parse_config_str("[dns]\nmode = \"system\"\n", false, "test")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("invalid dns.mode"));
     }
 
     #[test]

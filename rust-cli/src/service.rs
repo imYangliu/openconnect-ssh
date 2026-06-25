@@ -334,6 +334,7 @@ impl ServiceVpn {
         let mut command = Command::new(self.openconnect_bin());
         command
             .env("OCH_ROUTES_EXTRA", self.config.routes_extra.join(" "))
+            .env("OCH_DNS_MODE", &self.config.dns_mode)
             .args(openconnect_args_for_config(
                 &self.config,
                 Path::new(SERVICE_PID_FILE),
@@ -546,8 +547,8 @@ impl ServiceVpn {
 
     fn resolve_vpn_script(&self) -> Option<PathBuf> {
         if self.is_macos()
-            && self.config.routes_mode == "extra"
-            && !self.config.routes_extra.is_empty()
+            && ((self.config.routes_mode == "extra" && !self.config.routes_extra.is_empty())
+                || self.config.dns_mode == "ignore")
         {
             route_wrapper_path()
         } else {

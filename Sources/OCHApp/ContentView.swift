@@ -665,6 +665,26 @@ struct ContentView: View {
                 }
             }
 
+            FormSection(tr("section.dns"), systemImage: "network") {
+                FieldStack {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(verbatim: tr("field.dns_mode"))
+                            .foregroundStyle(.secondary)
+                            .frame(width: UILayout.labelWidth, alignment: .trailing)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Picker(tr("field.dns_mode"), selection: $model.config.dnsMode) {
+                                ForEach(AppDNSMode.allCases) { mode in
+                                    Text(verbatim: tr(mode.titleKey)).tag(mode)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(maxWidth: 420)
+                            HelpText(tr("help.dns_mode"))
+                        }
+                    }
+                }
+            }
+
             FormSection(tr("section.proxy"), systemImage: "arrow.left.arrow.right") {
                 Toggle(isOn: $model.config.proxyEnabled) {
                     Text(verbatim: tr("toggle.enable_proxy"))

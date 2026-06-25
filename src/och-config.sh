@@ -123,6 +123,16 @@ och_config_apply_value() {
           ;;
       esac
       ;;
+    dns.mode)
+      case "$value" in
+        openconnect|ignore)
+          OCH_DNS_MODE="$value"
+          ;;
+        *)
+          och_config_error "invalid dns.mode at line $line_number: $value" || return 1
+          ;;
+      esac
+      ;;
     proxy.local_host)
       OCH_PROXY_ENABLED=1
       OCH_PROXY_LOCAL_HOST="$value"
@@ -164,6 +174,7 @@ och_config_init_defaults() {
   OCH_TARGET_SSH_USER="${OCH_TARGET_SSH_USER:-${USER:-}}"
   OCH_ROUTES_MODE="${OCH_ROUTES_MODE:-openconnect}"
   OCH_ROUTES_EXTRA="${OCH_ROUTES_EXTRA:-}"
+  OCH_DNS_MODE="${OCH_DNS_MODE:-openconnect}"
   OCH_PROXY_ENABLED="${OCH_PROXY_ENABLED:-0}"
   OCH_PROXY_LOCAL_HOST="${OCH_PROXY_LOCAL_HOST:-127.0.0.1}"
   OCH_PROXY_LOCAL_PORT="${OCH_PROXY_LOCAL_PORT:-7890}"
@@ -201,6 +212,7 @@ load_och_toml_file() {
   OCH_TARGET_SSH_USER="${USER:-}"
   OCH_ROUTES_MODE=""
   OCH_ROUTES_EXTRA=""
+  OCH_DNS_MODE="openconnect"
   OCH_PROXY_LOCAL_HOST="127.0.0.1"
   OCH_PROXY_LOCAL_PORT="7890"
   OCH_PROXY_REMOTE_PORT="7890"
@@ -215,7 +227,7 @@ load_och_toml_file() {
     if [[ "$line" == \[*\] ]]; then
       section="$(och_config_trim "${line:1:${#line}-2}")"
       case "$section" in
-        vpn|ssh|routes|proxy|paths|app)
+        vpn|ssh|routes|dns|proxy|paths|app)
           ;;
         *)
           och_config_error "unknown config section at line $line_number: $section" || return 1

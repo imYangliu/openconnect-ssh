@@ -114,6 +114,9 @@ port = "22"
 mode = "openconnect"
 extra = []
 
+[dns]
+mode = "openconnect"
+
 [paths]
 # Runtime helper paths are fixed by the installed app or CLI layout.
 
@@ -193,11 +196,13 @@ Host och-target
 
 写入 `~/.ssh/och.config` 前，GUI 和 `och setup` 都会先把候选配置写入临时文件，并运行 `ssh -F <临时文件> -G <host>` 校验。校验失败时不会覆盖现有 SSH 配置，避免无效 Host、端口或命令格式影响用户日常 SSH。
 
-## 路由与代理
+## 路由、DNS 与代理
 
 macOS 默认使用 OpenConnect 自带的 `vpnc-script`，不额外接管路由。只有 `[routes].mode = "extra"` 且 `[routes].extra` 有 CIDR 时，OCH 才会通过内置 wrapper 把这些 CIDR 加到 OpenConnect tunnel；这不是直连绕过规则。
 
 Debian/Linux 不自动选择第三方分流脚本。需要额外加入 VPN tunnel 的路由时，请使用系统网络策略、服务端下发路由，或在部署层显式配置 OpenConnect 脚本。
+
+OpenConnect 网关可能会下发 DNS。默认 `[dns].mode = "openconnect"`，允许 OpenConnect 和 `vpnc-script` 按网关配置更新系统 DNS。macOS 上可改为 `[dns].mode = "ignore"`，OCH 会通过内置 wrapper 忽略下发 DNS 并保留当前系统 DNS；Linux/Debian 请使用系统网络策略或自定义 OpenConnect 脚本控制 DNS。
 
 `[proxy]` 是可选字段，默认不会写入配置。它保留给 GUI 和旧 shell wrapper 的反向端口映射兼容能力；当前 Rust CLI 主路径是 `ssh och-target`，不会直接提供 `och --proxy` 命令。
 

@@ -305,6 +305,9 @@ port = $(och_setup_quote_toml "${OCH_TARGET_PORT:-22}")
 [routes]
 mode = $(och_setup_quote_toml "$route_mode")
 extra = [$route_lines]
+
+[dns]
+mode = $(och_setup_quote_toml "${OCH_DNS_MODE:-openconnect}")
 $proxy_section
 
 [paths]

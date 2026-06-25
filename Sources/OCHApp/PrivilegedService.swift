@@ -84,6 +84,7 @@ struct PrivilegedServiceConfig: Encodable {
     var target_port: String
     var routes_mode: String
     var routes_extra: [String]
+    var dns_mode: String
     var proxy_enabled: Bool
     var proxy_local_host: String
     var proxy_local_port: String
@@ -100,6 +101,7 @@ struct PrivilegedServiceConfig: Encodable {
         self.target_port = config.targetPort
         self.routes_mode = config.routeMode.rawValue
         self.routes_extra = config.extraRoutes
+        self.dns_mode = config.dnsMode.rawValue
         self.proxy_enabled = config.proxyEnabled
         self.proxy_local_host = config.proxyLocalHost
         self.proxy_local_port = config.proxyLocalPort

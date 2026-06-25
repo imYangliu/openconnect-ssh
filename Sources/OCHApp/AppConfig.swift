@@ -16,6 +16,22 @@ enum AppRouteMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum AppDNSMode: String, CaseIterable, Identifiable {
+    case openconnect
+    case ignore
+
+    var id: String { rawValue }
+
+    var titleKey: String {
+        switch self {
+        case .openconnect:
+            return "dns_mode.openconnect"
+        case .ignore:
+            return "dns_mode.ignore"
+        }
+    }
+}
+
 struct AppConfig: Equatable {
     var vpnHost = ""
     var vpnUser = ""
@@ -26,6 +42,7 @@ struct AppConfig: Equatable {
     var targetUser = NSUserName()
     var routeMode: AppRouteMode = .openconnect
     var extraRoutesText = ""
+    var dnsMode: AppDNSMode = .openconnect
     var proxyEnabled = false
     var proxyLocalHost = "127.0.0.1"
     var proxyLocalPort = "7890"
@@ -142,6 +159,9 @@ enum TOMLConfigFile {
         [routes]
         mode = \(quote(config.routeMode.rawValue))
         extra = [\(routes)]
+
+        [dns]
+        mode = \(quote(config.dnsMode.rawValue))
         \(proxySection)
 
         [paths]
@@ -200,6 +220,15 @@ enum TOMLConfigFile {
                 seenKeys.insert("routes.mode")
                 continue
             }
+            if section == "dns", pair.key == "mode" {
+                let value = unquote(pair.value)
+                guard let mode = AppDNSMode(rawValue: value) else {
+                    throw TOMLConfigError.invalidValue(lineNumber, "dns.mode", value)
+                }
+                config.dnsMode = mode
+                seenKeys.insert("dns.mode")
+                continue
+            }
             try apply(pair.value, section: section, key: pair.key, lineNumber: lineNumber, to: &config)
             seenKeys.insert("\(section).\(pair.key)")
         }
@@ -240,7 +269,7 @@ enum TOMLConfigFile {
             .filter { !$0.isEmpty }
     }
 
-    private static let allowedSections = Set(["vpn", "ssh", "routes", "proxy", "paths", "app"])
+    private static let allowedSections = Set(["vpn", "ssh", "routes", "dns", "proxy", "paths", "app"])
 
     private static let requiredKeys = [
         "vpn.host",
@@ -275,6 +304,11 @@ enum TOMLConfigFile {
             config.proxyLocalPort = value
         case ("proxy", "remote_port"):
             config.proxyRemotePort = value
+        case ("dns", "mode"):
+            guard let mode = AppDNSMode(rawValue: value) else {
+                throw TOMLConfigError.invalidValue(lineNumber, "dns.mode", value)
+            }
+            config.dnsMode = mode
         case ("app", "language"):
             guard let language = AppLanguage(rawValue: value) else {
                 throw TOMLConfigError.invalidValue(lineNumber, "app.language", value)

@@ -121,6 +121,7 @@ impl Vpn {
                 "OCH_ROUTES_EXTRA={}",
                 self.runtime.config.routes_extra.join(" ")
             ))
+            .arg(format!("OCH_DNS_MODE={}", self.runtime.config.dns_mode))
             .arg(self.openconnect_bin())
             .args(&openconnect_args)
             .stdin(Stdio::piped())
@@ -396,6 +397,7 @@ impl Vpn {
             self.is_macos(),
             &self.runtime.config.routes_mode,
             !self.runtime.config.routes_extra.is_empty(),
+            &self.runtime.config.dns_mode,
         ) {
             route_wrapper_path()
         } else {
@@ -642,8 +644,13 @@ fn sudo_mode_args(mode: SudoMode) -> &'static [&'static str] {
     }
 }
 
-fn should_use_route_wrapper(is_macos: bool, routes_mode: &str, has_extra_routes: bool) -> bool {
-    is_macos && routes_mode == "extra" && has_extra_routes
+fn should_use_route_wrapper(
+    is_macos: bool,
+    routes_mode: &str,
+    has_extra_routes: bool,
+    dns_mode: &str,
+) -> bool {
+    is_macos && ((routes_mode == "extra" && has_extra_routes) || dns_mode == "ignore")
 }
 
 fn first_line(bytes: &[u8]) -> String {
@@ -742,9 +749,25 @@ destination: default
 
     #[test]
     fn route_wrapper_only_runs_for_macos_extra_mode_with_extra_routes() {
-        assert!(should_use_route_wrapper(true, "extra", true));
-        assert!(!should_use_route_wrapper(true, "openconnect", true));
-        assert!(!should_use_route_wrapper(true, "extra", false));
-        assert!(!should_use_route_wrapper(false, "extra", true));
+        assert!(should_use_route_wrapper(true, "extra", true, "openconnect"));
+        assert!(should_use_route_wrapper(
+            true,
+            "openconnect",
+            false,
+            "ignore"
+        ));
+        assert!(!should_use_route_wrapper(
+            true,
+            "openconnect",
+            true,
+            "openconnect"
+        ));
+        assert!(!should_use_route_wrapper(
+            true,
+            "extra",
+            false,
+            "openconnect"
+        ));
+        assert!(!should_use_route_wrapper(false, "extra", true, "ignore"));
     }
 }

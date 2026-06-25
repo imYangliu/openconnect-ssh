@@ -16,6 +16,7 @@ default_vpnc_script() {
 
 : "${VPNC_SCRIPT_BASE:=$(default_vpnc_script || true)}"
 : "${OCH_ROUTES_EXTRA:=}"
+: "${OCH_DNS_MODE:=openconnect}"
 : "${OCH_ROUTE_DRY_RUN:=0}"
 
 run_base_script() {
@@ -24,7 +25,18 @@ run_base_script() {
     return 1
   fi
 
-  "$VPNC_SCRIPT_BASE" "$@"
+  if [[ "$OCH_DNS_MODE" == "ignore" ]]; then
+    env -u INTERNAL_IP4_DNS \
+      -u INTERNAL_IP6_DNS \
+      -u INTERNAL_IP4_NBNS \
+      -u CISCO_DEF_DOMAIN \
+      -u CISCO_SPLIT_DNS \
+      -u INTERNAL_IP4_DNS_DOMAIN \
+      -u INTERNAL_IP6_DNS_DOMAIN \
+      "$VPNC_SCRIPT_BASE" "$@"
+  else
+    "$VPNC_SCRIPT_BASE" "$@"
+  fi
 }
 
 run_route() {
