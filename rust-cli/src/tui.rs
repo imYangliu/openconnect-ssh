@@ -9,7 +9,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Tabs, Wrap};
 use ratatui::{Frame, Terminal};
 use std::fs;
 use std::io::{self, IsTerminal};
@@ -181,7 +181,7 @@ impl TuiState {
             config_text,
             logs: String::new(),
             status: warning.unwrap_or_else(|| {
-                "↑/↓ 切左侧页面，←/→ 或 Tab 切字段，Enter 执行，Ctrl-S 保存，Esc 退出".to_string()
+                "←/→ 切顶部页面，↑/↓ 或 Tab 切字段，Enter 执行，Ctrl-S 保存，Esc 退出".to_string()
             }),
             paths,
             ssh_enabled,
@@ -230,21 +230,22 @@ impl TuiState {
                 self.canceled = true;
                 Ok(())
             }
-            KeyCode::Up => {
+            KeyCode::Left => {
                 self.previous_pane();
                 Ok(())
             }
-            KeyCode::Down => {
+            KeyCode::Right => {
                 self.next_pane();
                 Ok(())
             }
+            KeyCode::Up => self.previous_list_item(),
+            KeyCode::Down => self.next_list_item(),
             KeyCode::PageUp => self.previous_list_item(),
             KeyCode::PageDown => self.next_list_item(),
-            KeyCode::Left => self.previous_field(),
-            KeyCode::Right | KeyCode::Tab => self.next_field(),
+            KeyCode::Tab => self.next_field(),
             KeyCode::BackTab => self.previous_field(),
             KeyCode::Enter => self.enter(),
-            KeyCode::Char('a') => {
+            KeyCode::Char('a') if !self.is_text_field_active() => {
                 self.auto_refresh = !self.auto_refresh;
                 self.status = if self.auto_refresh {
                     "自动刷新已开启".to_string()
@@ -253,7 +254,9 @@ impl TuiState {
                 };
                 Ok(())
             }
-            KeyCode::Char('r') => self.refresh_current_pane(true, Instant::now()),
+            KeyCode::Char('r') if !self.is_text_field_active() => {
+                self.refresh_current_pane(true, Instant::now())
+            }
             KeyCode::Backspace => self.backspace(),
             KeyCode::Char(ch) => self.push_char(ch),
             _ => Ok(()),
@@ -300,6 +303,16 @@ impl TuiState {
             self.active - 1
         };
         Ok(())
+    }
+
+    fn is_text_field_active(&self) -> bool {
+        matches!(
+            (self.pane, self.active),
+            (Pane::Connection, 0..=3)
+                | (Pane::Ssh, 1..=5)
+                | (Pane::Routes, 1 | 3..=5)
+                | (Pane::Config, 2)
+        )
     }
 
     fn next_list_item(&mut self) -> Result<(), String> {
@@ -762,22 +775,28 @@ impl TuiState {
 
     fn pane_hint(&self) -> String {
         match self.pane {
-            Pane::Overview => "Overview: ↑/↓ 切页面，←/→ 切操作，Enter 执行".to_string(),
+            Pane::Overview => "Overview: ←/→ 切页面，↑/↓ 切操作，Enter 执行".to_string(),
             Pane::Connection => {
-                "Connection: ←/→ 切字段，编辑 VPN 字段，Enter 连接/断开/探测认证组，Ctrl-S 保存"
+                "Connection: ←/→ 切页面，↑/↓ 或 Tab 切字段，Enter 连接/断开/探测认证组，Ctrl-S 保存"
                     .to_string()
             }
             Pane::Ssh => {
-                "SSH: ←/→ 切字段，输入过滤 Host，PageUp/PageDown 选 Host，Enter 导入".to_string()
+                "SSH: ←/→ 切页面，↑/↓ 或 Tab 切字段，Host 列表用 PageUp/PageDown，Enter 导入"
+                    .to_string()
             }
             Pane::Routes => {
-                "Routes & Proxy: ←/→ 切字段，Enter 切换 mode/proxy，Ctrl-S 保存".to_string()
+                "Routes & Proxy: ←/→ 切页面，↑/↓ 或 Tab 切字段，Enter 切换 mode/proxy，Ctrl-S 保存"
+                    .to_string()
             }
             Pane::Service => {
-                "Service: ←/→ 切操作，Enter 执行 status/install/uninstall/logs".to_string()
+                "Service: ←/→ 切页面，↑/↓ 切操作，Enter 执行 status/install/uninstall/logs"
+                    .to_string()
             }
-            Pane::Config => "Config: ←/→ 切操作/编辑器，Enter 插入换行，Ctrl-S 保存".to_string(),
-            Pane::Logs => "Logs: ↑/↓ 切页面，Enter 刷新日志，a 自动刷新，r 立即刷新".to_string(),
+            Pane::Config => {
+                "Config: ←/→ 切页面，↑/↓ 或 Tab 切操作/编辑器，Enter 插入换行，Ctrl-S 保存"
+                    .to_string()
+            }
+            Pane::Logs => "Logs: ←/→ 切页面，Enter 刷新日志，a 自动刷新，r 立即刷新".to_string(),
         }
     }
 }
@@ -819,44 +838,53 @@ fn render(frame: &mut Frame, state: &TuiState) {
     let area = frame.area();
     let root = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(12), Constraint::Length(3)])
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(12),
+            Constraint::Length(3),
+        ])
         .split(area);
-    let body = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(24), Constraint::Min(40)])
-        .split(root[0]);
 
-    render_sidebar(frame, body[0], state);
+    render_tabs(frame, root[0], state);
     match state.pane {
-        Pane::Overview => render_overview(frame, body[1], state),
-        Pane::Connection => render_connection(frame, body[1], state),
-        Pane::Ssh => render_ssh(frame, body[1], state),
-        Pane::Routes => render_routes(frame, body[1], state),
-        Pane::Service => render_service(frame, body[1], state),
-        Pane::Config => render_config(frame, body[1], state),
-        Pane::Logs => render_logs(frame, body[1], state),
+        Pane::Overview => render_overview(frame, root[1], state),
+        Pane::Connection => render_connection(frame, root[1], state),
+        Pane::Ssh => render_ssh(frame, root[1], state),
+        Pane::Routes => render_routes(frame, root[1], state),
+        Pane::Service => render_service(frame, root[1], state),
+        Pane::Config => render_config(frame, root[1], state),
+        Pane::Logs => render_logs(frame, root[1], state),
     }
     let footer_text = format!(
-        "{} | Auto: {} | r 刷新当前页 | a 开关自动刷新",
+        "{} | ←/→ tabs | ↑/↓ fields | Tab next | Auto: {} | r refresh | a auto",
         state.status,
         if state.auto_refresh { "on" } else { "off" }
     );
     let footer = Paragraph::new(footer_text)
         .block(Block::default().borders(Borders::TOP).title("Status"))
         .wrap(Wrap { trim: true });
-    frame.render_widget(footer, root[1]);
+    frame.render_widget(footer, root[2]);
 }
 
-fn render_sidebar(frame: &mut Frame, area: Rect, state: &TuiState) {
-    let items = Pane::ALL
+fn render_tabs(frame: &mut Frame, area: Rect, state: &TuiState) {
+    let selected = Pane::ALL
         .iter()
-        .map(|pane| {
-            let marker = if *pane == state.pane { "> " } else { "  " };
-            ListItem::new(format!("{marker}{}", pane.title()))
-        })
+        .position(|pane| *pane == state.pane)
+        .unwrap_or(0);
+    let titles = Pane::ALL
+        .iter()
+        .map(|pane| pane.title())
         .collect::<Vec<_>>();
-    let list = List::new(items).block(Block::default().title("OCH").borders(Borders::ALL));
-    frame.render_widget(list, area);
+    let tabs = Tabs::new(titles)
+        .block(Block::default().title("OCH").borders(Borders::ALL))
+        .select(selected)
+        .style(Style::default().fg(Color::Gray))
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
+    frame.render_widget(tabs, area);
 }
 
 fn render_overview(frame: &mut Frame, area: Rect, state: &TuiState) {
@@ -1497,30 +1525,30 @@ mod tests {
     }
 
     #[test]
-    fn arrow_keys_match_sidebar_and_field_navigation() {
+    fn horizontal_tabs_and_field_navigation_are_distinct() {
         let mut state = state_for_test();
         assert_eq!(state.pane, Pane::Overview);
-        assert_eq!(state.active, 0);
-
-        state
-            .handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
-            .unwrap();
-        assert_eq!(state.pane, Pane::Connection);
         assert_eq!(state.active, 0);
 
         state
             .handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))
             .unwrap();
         assert_eq!(state.pane, Pane::Connection);
+        assert_eq!(state.active, 0);
+
+        state
+            .handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
+            .unwrap();
+        assert_eq!(state.pane, Pane::Connection);
         assert_eq!(state.active, 1);
 
         state
-            .handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE))
+            .handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
             .unwrap();
         assert_eq!(state.active, 0);
 
         state
-            .handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE))
+            .handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE))
             .unwrap();
         assert_eq!(state.pane, Pane::Overview);
         assert_eq!(state.active, 0);
@@ -1533,10 +1561,33 @@ mod tests {
             .unwrap();
         assert_eq!(state.selected_ssh, 1);
         state
-            .handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))
+            .handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE))
             .unwrap();
         assert_eq!(state.active, 2);
         assert_eq!(state.selected_ssh, 1);
+    }
+
+    #[test]
+    fn auto_refresh_shortcuts_do_not_steal_text_input() {
+        let mut state = state_for_test();
+        state.pane = Pane::Connection;
+        state.active = 0;
+        state.config.vpn_host.clear();
+
+        state
+            .handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE))
+            .unwrap();
+        state
+            .handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE))
+            .unwrap();
+        assert_eq!(state.config.vpn_host, "ar");
+        assert!(state.auto_refresh);
+
+        state.active = 4;
+        state
+            .handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE))
+            .unwrap();
+        assert!(!state.auto_refresh);
     }
 
     #[test]
@@ -1600,7 +1651,7 @@ mod tests {
         terminal.draw(|frame| render(frame, &state)).unwrap();
         let text = format!("{:?}", terminal.backend().buffer());
         assert!(text.contains("Auto: off"));
-        assert!(text.contains("r 刷新当前页"));
+        assert!(text.contains("r refresh"));
     }
 
     #[test]
@@ -1610,9 +1661,10 @@ mod tests {
         state.logs = "line one\nline two".to_string();
 
         state
-            .handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))
+            .handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE))
             .unwrap();
         assert_eq!(state.active, 0);
+        assert_eq!(state.pane, Pane::Logs);
 
         let backend = TestBackend::new(100, 28);
         let mut terminal = Terminal::new(backend).unwrap();
