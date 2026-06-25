@@ -43,7 +43,7 @@ usage() {
   - 使用 vpn 子命令时，会通过 ${OCH_COMMAND_NAME} vpn 管理 VPN 连接
   - 使用 --proxy 时，会额外添加 config.toml 中的反向端口映射
   - 使用 --proxy-command 时，会先确保 VPN 可达，再把 stdio 连接到目标 host:port
-  - 使用 setup 时，会引导写入 ${OCH_CONFIG_FILE}、Keychain 和托管 SSH Host
+  - 使用 setup 时，会引导写入 ${OCH_CONFIG_FILE}、${OCH_SECRETS_FILE} 和托管 SSH Host
 
 示例:
   ${OCH_COMMAND_NAME} vpn connect
@@ -57,7 +57,7 @@ usage() {
 环境变量:
   OCH_CONFIG_FILE     OCH TOML 配置文件，默认 ${OCH_CONFIG_FILE}
   OCH_SECRETS_FILE    只含 VPN_PASSWORD 的 secret 文件，默认 ${OCH_SECRETS_FILE}
-  VPN_PASSWORD        可选；优先于 secret 文件和 Keychain
+  VPN_PASSWORD        可选；优先于 secret 文件和 macOS Keychain fallback
 EOF
 }
 

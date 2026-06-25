@@ -79,7 +79,10 @@ jobs:
           mkdir -p "${app}/Contents/MacOS"
           mkdir -p "${app}/Contents/Resources/bin"
           mkdir -p "${app}/Contents/Resources/libexec/och"
+          mkdir -p "${app}/Contents/Library/LaunchServices"
+          mkdir -p "${app}/Contents/Library/LaunchDaemons"
           cp .build/release/OCHApp "${app}/Contents/MacOS/OCHApp"
+          install -m 0755 .build/release/OCHPrivilegedHelper "${app}/Contents/Library/LaunchServices/io.github.imyangliu.och.helper"
           cp -R .build/release/OCH_OCHApp.bundle "${app}/OCH_OCHApp.bundle"
           install -m 0755 rust-cli/target/release/och "${app}/Contents/Resources/bin/och"
           install -m 0755 src/och-config.sh "${app}/Contents/Resources/libexec/och/och-config.sh"
@@ -108,6 +111,23 @@ jobs:
             '</dict>' \
             '</plist>' \
             > "${app}/Contents/Info.plist"
+          printf '%s\n' \
+            '<?xml version="1.0" encoding="UTF-8"?>' \
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+            '<plist version="1.0">' \
+            '<dict>' \
+            '  <key>Label</key>' \
+            '  <string>io.github.imyangliu.och.helper</string>' \
+            '  <key>BundleProgram</key>' \
+            '  <string>Contents/Library/LaunchServices/io.github.imyangliu.och.helper</string>' \
+            '  <key>MachServices</key>' \
+            '  <dict>' \
+            '    <key>io.github.imyangliu.och.helper</key>' \
+            '    <true/>' \
+            '  </dict>' \
+            '</dict>' \
+            '</plist>' \
+            > "${app}/Contents/Library/LaunchDaemons/io.github.imyangliu.och.helper.plist"
           ditto -c -k --keepParent "${app}" "dist/OCHApp-${version}-darwin-arm64.zip"
 
       - name: Upload artifacts

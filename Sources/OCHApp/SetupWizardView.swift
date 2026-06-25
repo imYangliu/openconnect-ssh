@@ -19,7 +19,7 @@ struct SetupWizardView: View {
         self.model = model
         self._draft = State(initialValue: model.config)
         self._password = State(initialValue: model.vpnPassword)
-        self._routeCIDR = State(initialValue: SetupCIDRHelper.defaultCIDR(for: model.config.targetHost))
+        self._routeCIDR = State(initialValue: "")
     }
 
     var body: some View {
@@ -101,9 +101,9 @@ struct SetupWizardView: View {
                                     }
                                 }
                                 .pickerStyle(.menu)
-                                .onChange(of: selectedAuthGroup) { value in
-                                    if !value.isEmpty {
-                                        draft.vpnAuthGroup = value
+                                .onChange(of: selectedAuthGroup) {
+                                    if !selectedAuthGroup.isEmpty {
+                                        draft.vpnAuthGroup = selectedAuthGroup
                                     }
                                 }
                                 TextField(tr("field.auth_group"), text: $draft.vpnAuthGroup)
@@ -154,8 +154,8 @@ struct SetupWizardView: View {
                                 }
                             }
                             .pickerStyle(.menu)
-                            .onChange(of: selectedHost) { value in
-                                if value.isEmpty {
+                            .onChange(of: selectedHost) {
+                                if selectedHost.isEmpty {
                                     statusText = ""
                                 } else {
                                     resolveSelectedHost()
@@ -363,7 +363,6 @@ struct SetupWizardView: View {
                 draft.targetHost = resolved.hostName
                 draft.targetUser = resolved.user
                 draft.targetPort = resolved.port
-                routeCIDR = SetupCIDRHelper.defaultCIDR(for: resolved.hostName)
                 statusText = L10n.tr(
                     "setup.ssh.resolved",
                     language: draft.appLanguage,
@@ -387,6 +386,9 @@ struct SetupWizardView: View {
 
         var finalConfig = draft
         finalConfig.extraRoutesText = SetupCIDRHelper.append(route: routeCIDR, to: finalConfig.extraRoutesText)
+        if !routeCIDR.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            finalConfig.routeMode = .extra
+        }
         if model.completeSetup(config: finalConfig, password: password) {
             dismiss()
         } else {

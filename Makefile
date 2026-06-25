@@ -13,7 +13,7 @@ SHELL_SCRIPTS := \
 	install.sh \
 	tests/unit-tests.sh
 
-.PHONY: help check check-portable check-shell shellcheck check-rust build build-rust run-gui smoke install clean
+.PHONY: help check check-portable check-shell shellcheck check-rust check-swift-parsing build build-rust run-gui write-launchdaemon-plist signed-app smoke install clean
 
 help:
 	@printf '%s\n' \
@@ -23,14 +23,16 @@ help:
 		'  make check-shell     检查 shell 脚本语法' \
 		'  make shellcheck      运行 shellcheck；未安装时跳过' \
 		'  make check-rust      运行 Rust CLI 测试' \
+		'  make check-swift-parsing  检查 Swift 状态解析' \
 		'  make build           构建 SwiftUI GUI' \
 		'  make build-rust      构建 Rust CLI' \
 		'  make run-gui         构建并后台启动 GUI' \
+		'  make signed-app      构建并签名 macOS 26+ App bundle（需要 SIGN_IDENTITY）' \
 		'  make smoke           运行轻量 smoke tests' \
 		'  make install         安装 CLI 和运行时文件' \
 		'  make clean           删除 SwiftPM 构建产物'
 
-check: check-shell shellcheck check-rust build smoke
+check: check-shell shellcheck check-rust check-swift-parsing build smoke
 
 # 不含 swift build，可在 Linux/WSL（无 Swift 工具链）上运行
 check-portable: check-shell shellcheck check-rust smoke
@@ -51,6 +53,12 @@ shellcheck:
 check-rust:
 	cargo test --manifest-path $(RUST_CLI_MANIFEST)
 
+check-swift-parsing:
+	@tmpbin="$$(mktemp "$${TMPDIR:-/tmp}/och-status-parser.XXXXXX")"; \
+	trap 'rm -f "$$tmpbin"' EXIT; \
+	swiftc Sources/OCHApp/StatusParsing.swift tests/status-parser-smoke.swift -o "$$tmpbin"; \
+	"$$tmpbin"
+
 build-rust:
 	cargo build --manifest-path $(RUST_CLI_MANIFEST)
 
@@ -63,7 +71,10 @@ run-gui: build build-rust
 	mkdir -p "$$app/Contents/MacOS"; \
 	mkdir -p "$$app/Contents/Resources/bin"; \
 	mkdir -p "$$app/Contents/Resources/libexec/och"; \
+	mkdir -p "$$app/Contents/Library/LaunchServices"; \
+	mkdir -p "$$app/Contents/Library/LaunchDaemons"; \
 	cp .build/debug/OCHApp "$$app/Contents/MacOS/OCHApp"; \
+	install -m 0755 .build/debug/OCHPrivilegedHelper "$$app/Contents/Library/LaunchServices/io.github.imyangliu.och.helper"; \
 	cp -R .build/debug/OCH_OCHApp.bundle "$$app/OCH_OCHApp.bundle"; \
 	install -m 0755 $(RUST_CLI_DEBUG_BIN) "$$app/Contents/Resources/bin/och"; \
 	install -m 0755 src/och-config.sh "$$app/Contents/Resources/libexec/och/och-config.sh"; \
@@ -92,9 +103,75 @@ run-gui: build build-rust
 		'</dict>' \
 		'</plist>' \
 		> "$$app/Contents/Info.plist"; \
+	$(MAKE) write-launchdaemon-plist APP="$$app"; \
 	open -n "$$app"; \
 	osascript -e 'tell application "OCH" to activate' >/dev/null 2>&1 || true; \
 	echo "OCH launched: $$app"
+
+write-launchdaemon-plist:
+	@plist="$${APP}/Contents/Library/LaunchDaemons/io.github.imyangliu.och.helper.plist"; \
+	printf '%s\n' \
+		'<?xml version="1.0" encoding="UTF-8"?>' \
+		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+		'<plist version="1.0">' \
+		'<dict>' \
+		'  <key>Label</key>' \
+		'  <string>io.github.imyangliu.och.helper</string>' \
+		'  <key>BundleProgram</key>' \
+		'  <string>Contents/Library/LaunchServices/io.github.imyangliu.och.helper</string>' \
+		'  <key>MachServices</key>' \
+		'  <dict>' \
+		'    <key>io.github.imyangliu.och.helper</key>' \
+		'    <true/>' \
+		'  </dict>' \
+		'</dict>' \
+		'</plist>' \
+		> "$$plist"
+
+signed-app:
+	@test -n "$${SIGN_IDENTITY:-}" || { echo 'SIGN_IDENTITY is required, e.g. SIGN_IDENTITY="Developer ID Application: ..."' >&2; exit 2; }
+	cargo build --manifest-path $(RUST_CLI_MANIFEST) --release
+	swift build -c release
+	@set -e; \
+	app=".build/release/OCH.app"; \
+	rm -rf "$$app"; \
+	mkdir -p "$$app/Contents/MacOS" "$$app/Contents/Resources/bin" "$$app/Contents/Resources/libexec/och" "$$app/Contents/Library/LaunchServices" "$$app/Contents/Library/LaunchDaemons"; \
+	cp .build/release/OCHApp "$$app/Contents/MacOS/OCHApp"; \
+	install -m 0755 .build/release/OCHPrivilegedHelper "$$app/Contents/Library/LaunchServices/io.github.imyangliu.och.helper"; \
+	cp -R .build/release/OCH_OCHApp.bundle "$$app/OCH_OCHApp.bundle"; \
+	install -m 0755 rust-cli/target/release/och "$$app/Contents/Resources/bin/och"; \
+	install -m 0755 src/och-config.sh "$$app/Contents/Resources/libexec/och/och-config.sh"; \
+	install -m 0755 src/och-setup.sh "$$app/Contents/Resources/libexec/och/och-setup.sh"; \
+	install -m 0755 src/macos-vpnc-route-wrapper.sh "$$app/Contents/Resources/libexec/och/macos-vpnc-route-wrapper.sh"; \
+	install -m 0755 src/och-sudo-askpass.sh "$$app/Contents/Resources/libexec/och/och-sudo-askpass.sh"; \
+	printf '%s\n' \
+		'<?xml version="1.0" encoding="UTF-8"?>' \
+		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+		'<plist version="1.0">' \
+		'<dict>' \
+		'  <key>CFBundleExecutable</key>' \
+		'  <string>OCHApp</string>' \
+		'  <key>CFBundleIdentifier</key>' \
+		'  <string>io.github.imyangliu.och</string>' \
+		'  <key>CFBundleName</key>' \
+		'  <string>OCH</string>' \
+		'  <key>CFBundleDisplayName</key>' \
+		'  <string>OCH</string>' \
+		'  <key>CFBundlePackageType</key>' \
+		'  <string>APPL</string>' \
+		'  <key>CFBundleVersion</key>' \
+		'  <string>1</string>' \
+		'  <key>CFBundleShortVersionString</key>' \
+		'  <string>0.1.0</string>' \
+		'</dict>' \
+		'</plist>' \
+		> "$$app/Contents/Info.plist"; \
+	$(MAKE) write-launchdaemon-plist APP="$$app"; \
+	codesign --force --options runtime --timestamp --sign "$$SIGN_IDENTITY" "$$app/Contents/Library/LaunchServices/io.github.imyangliu.och.helper"; \
+	codesign --force --options runtime --timestamp --sign "$$SIGN_IDENTITY" "$$app/Contents/Resources/bin/och"; \
+	codesign --force --options runtime --timestamp --deep --sign "$$SIGN_IDENTITY" "$$app"; \
+	codesign --verify --deep --strict --verbose=2 "$$app"; \
+	echo "Signed app: $$app"
 
 smoke: build-rust
 	@bash -euo pipefail -c '\

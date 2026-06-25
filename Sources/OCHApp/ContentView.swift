@@ -1,11 +1,13 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var model = AppModel()
-    @State private var selectedPane: AppPane = .connection
+    @ObservedObject var model: AppModel
+    @State private var selectedPane: AppPane = .overview
     @State private var confirmingDeleteSavedPassword = false
     @State private var confirmingReloadConfiguration = false
     @State private var confirmingSyncTOML = false
+    @State private var confirmingInstallService = false
+    @State private var confirmingUninstallService = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -26,8 +28,11 @@ struct ContentView: View {
             minHeight: UILayout.windowMinHeight,
             alignment: .topLeading
         )
-        .onChange(of: model.config) { _ in
+        .onChange(of: model.config) {
             model.syncConfigTextAfterSettingsChange()
+        }
+        .onAppear {
+            model.refreshServiceStatus(silent: true)
         }
         .sheet(isPresented: $model.showingSetupWizard) {
             SetupWizardView(model: model)
@@ -55,6 +60,22 @@ struct ContentView: View {
             }
         } message: {
             Text(verbatim: tr("confirm.sync_toml.message"))
+        }
+        .alert(tr("confirm.service_install.title"), isPresented: $confirmingInstallService) {
+            Button(tr("button.cancel"), role: .cancel) {}
+            Button(tr("button.install_service")) {
+                model.installService()
+            }
+        } message: {
+            Text(verbatim: tr("confirm.service_install.message"))
+        }
+        .alert(tr("confirm.service_uninstall.title"), isPresented: $confirmingUninstallService) {
+            Button(tr("button.cancel"), role: .cancel) {}
+            Button(tr("button.uninstall_service"), role: .destructive) {
+                model.uninstallService()
+            }
+        } message: {
+            Text(verbatim: tr("confirm.service_uninstall.message"))
         }
         .environment(\.locale, model.config.appLanguage.locale)
     }
@@ -104,7 +125,7 @@ struct ContentView: View {
             Spacer()
 
             VStack(alignment: .leading, spacing: 10) {
-                includeStatusPanel
+                sidebarStatusPanel
                 Button {
                     model.showingSetupWizard = true
                 } label: {
@@ -155,6 +176,7 @@ struct ContentView: View {
                     .controlSize(.small)
             }
 
+            serviceHeaderLabel
             includeStatusLabel
         }
         .padding(.horizontal, 22)
@@ -206,9 +228,42 @@ struct ContentView: View {
         model.includeInstalled ? "status.ssh_include.installed" : "status.ssh_include.missing"
     }
 
+    private var serviceHeaderLabel: some View {
+        Label {
+            Text(verbatim: model.serviceStatus.isAvailable ? tr("status.service.available_short") : tr("status.service.needs_attention_short"))
+        } icon: {
+            Image(systemName: model.serviceStatus.isAvailable ? "checkmark.shield.fill" : "shield.slash")
+        }
+        .font(.caption)
+        .foregroundStyle(model.serviceStatus.isAvailable ? Color.green : Color.orange)
+        .lineLimit(1)
+    }
+
+    private var sidebarStatusPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label {
+                Text(verbatim: model.connectionSummaryText)
+            } icon: {
+                Image(systemName: model.traySystemImage)
+            }
+            .font(.caption)
+            .foregroundStyle(connectionColor)
+
+            serviceHeaderLabel
+            includeStatusLabel
+        }
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
     @ViewBuilder
     private var paneContent: some View {
         switch selectedPane {
+        case .overview:
+            scrollingPane {
+                overviewPane
+            }
         case .connection:
             scrollingPane {
                 connectionPane
@@ -220,6 +275,10 @@ struct ContentView: View {
         case .routes:
             scrollingPane {
                 routesPane
+            }
+        case .service:
+            scrollingPane {
+                servicePane
             }
         case .advanced:
             scrollingPane {
@@ -238,6 +297,118 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var overviewPane: some View {
+        SettingsStack {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(verbatim: tr("overview.title"))
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Text(verbatim: tr("overview.subtitle"))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 12),
+                GridItem(.flexible(), spacing: 12)
+            ], alignment: .leading, spacing: 12) {
+                StatusCard(
+                    title: tr("card.connection.title"),
+                    value: model.connectionSummaryText,
+                    detail: connectionDetailText,
+                    systemImage: model.traySystemImage,
+                    color: connectionColor
+                )
+                StatusCard(
+                    title: tr("card.service.title"),
+                    value: model.serviceSummaryText,
+                    detail: model.serviceFallbackText,
+                    systemImage: model.serviceStatus.isAvailable ? "checkmark.shield.fill" : "shield.slash",
+                    color: model.serviceStatus.isAvailable ? .green : .orange
+                )
+                StatusCard(
+                    title: tr("card.ssh_include.title"),
+                    value: tr(includeStatusTitleKey),
+                    detail: model.includeInstalled ? tr("status.ssh_include.ready_help") : tr("status.ssh_include.missing_help"),
+                    systemImage: model.includeInstalled ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+                    color: model.includeInstalled ? .green : .orange
+                )
+                StatusCard(
+                    title: tr("card.config.title"),
+                    value: model.hasUnsavedConfigTextChanges ? tr("status.config.unsaved") : tr("status.config.saved_or_synced"),
+                    detail: ConfigPaths.configTOML.path,
+                    systemImage: model.hasUnsavedConfigTextChanges ? "doc.badge.clock" : "doc.text",
+                    color: model.hasUnsavedConfigTextChanges ? .orange : .secondary
+                )
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    model.connect()
+                } label: {
+                    Label(tr("button.connect"), systemImage: "bolt.horizontal.circle")
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .disabled(model.isConnectionBusy)
+
+                Button {
+                    model.disconnect()
+                } label: {
+                    Label(tr("button.disconnect"), systemImage: "xmark.circle")
+                }
+                .disabled(model.isConnectionBusy)
+
+                Button {
+                    model.refreshStatus()
+                    model.refreshServiceStatus()
+                } label: {
+                    Label(tr("button.refresh_all"), systemImage: "arrow.clockwise")
+                }
+                .disabled(model.isBusy)
+            }
+
+            if !model.connectionStatusText.isEmpty {
+                NoticeView(message: model.connectionStatusText, isError: model.connectionStatusIsError)
+            }
+
+            FormSection(tr("section.service_mode"), systemImage: "checkmark.shield") {
+                Text(verbatim: model.serviceFallbackText)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 10) {
+                    Button {
+                        model.refreshServiceStatus()
+                    } label: {
+                        Label(tr("button.refresh_service"), systemImage: "arrow.clockwise")
+                    }
+                    .disabled(model.isServiceBusy)
+
+                    Button {
+                        confirmingInstallService = true
+                    } label: {
+                        Label(tr("button.install_service"), systemImage: "square.and.arrow.down")
+                    }
+                    .disabled(model.isServiceBusy || model.serviceStatus.installed == true)
+
+                    Button(role: .destructive) {
+                        confirmingUninstallService = true
+                    } label: {
+                        Label(tr("button.uninstall_service"), systemImage: "trash")
+                    }
+                    .disabled(model.isServiceBusy || model.serviceStatus.installed != true)
+                }
+
+                if !model.serviceStatusText.isEmpty {
+                    NoticeView(message: model.serviceStatusText, isError: model.serviceStatusIsError)
+                }
+            }
+        }
     }
 
     private var connectionPane: some View {
@@ -291,7 +462,7 @@ struct ContentView: View {
                     }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(model.isBusy)
+                .disabled(model.isConnectionBusy)
 
                 Button {
                     model.disconnect()
@@ -302,7 +473,7 @@ struct ContentView: View {
                         Image(systemName: "xmark.circle")
                     }
                 }
-                .disabled(model.isBusy)
+                .disabled(model.isConnectionBusy)
 
                 Button {
                     model.refreshStatus()
@@ -313,7 +484,73 @@ struct ContentView: View {
                         Image(systemName: "waveform.path.ecg")
                     }
                 }
-                .disabled(model.isBusy)
+                .disabled(model.isConnectionBusy)
+            }
+        }
+    }
+
+    private var servicePane: some View {
+        SettingsStack {
+            FormSection(tr("section.service_mode"), systemImage: "checkmark.shield") {
+                VStack(alignment: .leading, spacing: 10) {
+                    ServiceStatusRow(title: tr("field.service_installed"), value: model.serviceStatus.installed, yes: tr("value.yes"), no: tr("value.no"), unknown: tr("value.unknown"))
+                    ServiceStatusRow(title: tr("field.service_running"), value: model.serviceStatus.running, yes: tr("value.yes"), no: tr("value.no"), unknown: tr("value.unknown"))
+                    if !model.serviceStatus.registrationStatus.isEmpty {
+                        KeyValueRow(title: tr("field.registration_status"), value: model.serviceStatus.registrationStatus)
+                    }
+                    ServiceStatusRow(title: tr("field.xpc_reachable"), value: model.serviceStatus.xpcReachable, yes: tr("value.yes"), no: tr("value.no"), unknown: tr("value.unknown"))
+                    ServiceStatusRow(title: tr("field.socket_exists"), value: model.serviceStatus.socketExists, yes: tr("value.yes"), no: tr("value.no"), unknown: tr("value.unknown"))
+                    ServiceStatusRow(title: tr("field.socket_reachable"), value: model.serviceStatus.socketReachable, yes: tr("value.yes"), no: tr("value.no"), unknown: tr("value.unknown"))
+                    if !model.serviceStatus.socketPath.isEmpty {
+                        KeyValueRow(title: tr("field.socket_path"), value: model.serviceStatus.socketPath)
+                    }
+                }
+
+                HelpText(model.serviceFallbackText)
+
+                HStack(spacing: 10) {
+                    Button {
+                        model.refreshServiceStatus()
+                    } label: {
+                        Label(tr("button.refresh_service"), systemImage: "arrow.clockwise")
+                    }
+                    .disabled(model.isServiceBusy)
+
+                    Button {
+                        confirmingInstallService = true
+                    } label: {
+                        Label(tr("button.install_service"), systemImage: "square.and.arrow.down")
+                    }
+                    .disabled(model.isServiceBusy || model.serviceStatus.installed == true)
+
+                    Button(role: .destructive) {
+                        confirmingUninstallService = true
+                    } label: {
+                        Label(tr("button.uninstall_service"), systemImage: "trash")
+                    }
+                    .disabled(model.isServiceBusy || model.serviceStatus.installed != true)
+
+                    if model.serviceStatus.registrationStatus == "requiresApproval" {
+                        Button {
+                            model.openServiceSettings()
+                        } label: {
+                            Label(tr("button.open_system_settings"), systemImage: "gearshape")
+                        }
+                        .disabled(model.isServiceBusy)
+                    }
+                }
+            }
+
+            if !model.serviceStatusText.isEmpty {
+                NoticeView(message: model.serviceStatusText, isError: model.serviceStatusIsError)
+            }
+
+            FormSection(tr("section.service_raw_status"), systemImage: "list.bullet.rectangle") {
+                ReadOnlyTextBox(
+                    text: model.serviceStatus.rawOutput.isEmpty ? tr("status.service.no_status_yet") : model.serviceStatus.rawOutput,
+                    accessibilityLabel: tr("section.service_raw_status")
+                )
+                .frame(minHeight: 180)
             }
         }
     }
@@ -362,9 +599,27 @@ struct ContentView: View {
     private var routesPane: some View {
         SettingsStack {
             FormSection(tr("section.extra_routes"), systemImage: "point.3.connected.trianglepath.dotted") {
+                FieldStack {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(verbatim: tr("field.route_mode"))
+                            .foregroundStyle(.secondary)
+                            .frame(width: UILayout.labelWidth, alignment: .trailing)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Picker(tr("field.route_mode"), selection: $model.config.routeMode) {
+                                ForEach(AppRouteMode.allCases) { mode in
+                                    Text(verbatim: tr(mode.titleKey)).tag(mode)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(maxWidth: 420)
+                            HelpText(tr("help.route_mode"))
+                        }
+                    }
+                }
                 TextEditor(text: $model.config.extraRoutesText)
                     .font(.system(.body, design: .monospaced))
                     .frame(minHeight: 130)
+                    .disabled(model.config.routeMode == .openconnect)
                     .accessibilityLabel(Text(verbatim: tr("section.extra_routes")))
                     .overlay {
                         RoundedRectangle(cornerRadius: 6)
@@ -372,33 +627,47 @@ struct ContentView: View {
                             .allowsHitTesting(false)
                     }
                 HelpText(tr("help.extra_routes"))
+                if model.config.routeMode == .openconnect {
+                    HelpText(tr("help.extra_routes_inactive"))
+                }
                 if let error = extraRoutesError {
                     InlineIssue(error)
                 }
             }
 
             FormSection(tr("section.proxy"), systemImage: "arrow.left.arrow.right") {
+                Toggle(isOn: $model.config.proxyEnabled) {
+                    Text(verbatim: tr("toggle.enable_proxy"))
+                }
+                HelpText(tr("help.proxy_optional"))
                 FieldStack {
                     FieldRow(
                         tr("field.local_host"),
                         text: $model.config.proxyLocalHost,
                         placeholder: tr("placeholder.local_host"),
                         help: tr("help.local_host"),
-                        error: requiredError(model.config.proxyLocalHost, key: "validation.local_host_required")
+                        error: model.config.proxyEnabled
+                            ? requiredError(model.config.proxyLocalHost, key: "validation.local_host_required")
+                            : nil
                     )
                     FieldRow(
                         tr("field.local_port"),
                         text: $model.config.proxyLocalPort,
                         placeholder: tr("placeholder.proxy_port"),
-                        error: portError(model.config.proxyLocalPort, requiredKey: "validation.local_port_required")
+                        error: model.config.proxyEnabled
+                            ? portError(model.config.proxyLocalPort, requiredKey: "validation.local_port_required")
+                            : nil
                     )
                     FieldRow(
                         tr("field.remote_port"),
                         text: $model.config.proxyRemotePort,
                         placeholder: tr("placeholder.proxy_port"),
-                        error: portError(model.config.proxyRemotePort, requiredKey: "validation.remote_port_required")
+                        error: model.config.proxyEnabled
+                            ? portError(model.config.proxyRemotePort, requiredKey: "validation.remote_port_required")
+                            : nil
                     )
                 }
+                .disabled(!model.config.proxyEnabled)
             }
         }
     }
@@ -519,10 +788,33 @@ struct ContentView: View {
     }
 
     private var extraRoutesError: String? {
+        guard model.config.routeMode == .extra else {
+            return nil
+        }
         for route in model.config.extraRoutes where !SetupCIDRHelper.isValidCIDR(route) {
             return L10n.tr("validation.route_cidr_invalid", language: model.config.appLanguage, route)
         }
         return nil
+    }
+
+    private var connectionColor: Color {
+        switch model.connectionRunState {
+        case .connected:
+            return .green
+        case .disconnected:
+            return .secondary
+        case .error:
+            return .red
+        case .unknown:
+            return .orange
+        }
+    }
+
+    private var connectionDetailText: String {
+        if !model.lastVPNStatusOutput.isEmpty {
+            return model.lastVPNStatusOutput
+        }
+        return tr("status.connection.refresh_hint")
     }
 
     private func requiredError(_ value: String, key: String) -> String? {
@@ -542,9 +834,11 @@ struct ContentView: View {
 }
 
 private enum AppPane: CaseIterable, Identifiable {
+    case overview
     case connection
     case ssh
     case routes
+    case service
     case advanced
     case config
     case logs
@@ -553,12 +847,16 @@ private enum AppPane: CaseIterable, Identifiable {
 
     var titleKey: String {
         switch self {
+        case .overview:
+            return "pane.overview"
         case .connection:
             return "pane.connection"
         case .ssh:
             return "pane.ssh"
         case .routes:
             return "pane.routes"
+        case .service:
+            return "pane.service"
         case .advanced:
             return "pane.advanced"
         case .config:
@@ -570,18 +868,115 @@ private enum AppPane: CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
+        case .overview:
+            return "gauge.medium"
         case .connection:
             return "network"
         case .ssh:
             return "terminal"
         case .routes:
             return "point.3.connected.trianglepath.dotted"
+        case .service:
+            return "checkmark.shield"
         case .advanced:
             return "slider.horizontal.3"
         case .config:
             return "doc.plaintext"
         case .logs:
             return "list.bullet.rectangle"
+        }
+    }
+}
+
+private struct StatusCard: View {
+    let title: String
+    let value: String
+    let detail: String
+    let systemImage: String
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: systemImage)
+                    .foregroundStyle(color)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(verbatim: title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(verbatim: value)
+                        .font(.headline)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+            }
+
+            Text(verbatim: detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+                .truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(minHeight: 118, maxHeight: 138, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+private struct ServiceStatusRow: View {
+    let title: String
+    let value: Bool?
+    let yes: String
+    let no: String
+    let unknown: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: iconName)
+                .foregroundStyle(color)
+                .frame(width: 18)
+            Text(verbatim: title)
+                .foregroundStyle(.secondary)
+                .frame(width: UILayout.labelWidth, alignment: .trailing)
+            Text(verbatim: label)
+            Spacer()
+        }
+    }
+
+    private var label: String {
+        guard let value else { return unknown }
+        return value ? yes : no
+    }
+
+    private var iconName: String {
+        guard let value else { return "questionmark.circle" }
+        return value ? "checkmark.circle.fill" : "xmark.circle.fill"
+    }
+
+    private var color: Color {
+        guard let value else { return .secondary }
+        return value ? .green : .orange
+    }
+}
+
+private struct KeyValueRow: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(verbatim: title)
+                .foregroundStyle(.secondary)
+                .frame(width: UILayout.labelWidth + 28, alignment: .trailing)
+            Text(verbatim: value)
+                .font(.system(.body, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
         }
     }
 }

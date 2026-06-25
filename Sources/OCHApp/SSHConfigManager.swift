@@ -1,5 +1,9 @@
 import Foundation
 
+enum SSHConfigError: Error {
+    case validationFailed(String)
+}
+
 enum SSHConfigManager {
     static let includeLine = "Include ~/.ssh/och.config"
 
@@ -30,6 +34,7 @@ enum SSHConfigManager {
             contents += "\n"
         }
         contents += "\(includeLine)\n"
+        try validateSSHConfig(contents: "\(includeLine)\n", host: "__och_validation_probe__")
         try contents.write(to: ConfigPaths.sshConfig, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: ConfigPaths.sshConfig.path)
     }
@@ -44,13 +49,43 @@ enum SSHConfigManager {
           HostName \(config.targetHost)
           User \(config.targetUser)
           Port \(config.targetPort)
-          ProxyCommand \(ochPath) proxy-command %h %p
+          ProxyCommand \(quoteSSHConfigValue(ochPath)) proxy-command %h %p
           ServerAliveInterval 30
           ServerAliveCountMax 3
 
         """
 
+        try validateSSHConfig(contents: contents, host: config.defaultHost)
         try contents.write(to: ConfigPaths.managedSSHConfig, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: ConfigPaths.managedSSHConfig.path)
+    }
+
+    private static func validateSSHConfig(contents: String, host: String) throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("och-ssh-config-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: tempDirectory)
+        }
+
+        let tempConfig = tempDirectory.appendingPathComponent("config")
+        try contents.write(to: tempConfig, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tempConfig.path)
+
+        let result = try CommandRunner.run(
+            executable: "/usr/bin/ssh",
+            arguments: ["-F", tempConfig.path, "-G", host]
+        )
+        guard result.status == 0 else {
+            let details = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw SSHConfigError.validationFailed(details.isEmpty ? "ssh -G exited with status \(result.status)" : details)
+        }
+    }
+
+    private static func quoteSSHConfigValue(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
     }
 }
