@@ -151,7 +151,26 @@ smoke: build-rust
 	@bash tests/unit-tests.sh
 
 install:
-	./install.sh
+	@prefix="$${PREFIX:-}"; \
+	if [[ -z "$$prefix" ]]; then \
+		if [[ "$$(uname -s)" == "Darwin" ]]; then \
+			prefix="/opt/homebrew"; \
+		else \
+			prefix="/usr/local"; \
+		fi; \
+	fi; \
+	bin_dir="$${BIN_DIR:-$$prefix/bin}"; \
+	libexec_dir="$${LIBEXEC_DIR:-$$prefix/libexec/och}"; \
+	config_dir="$${CONFIG_DIR:-/etc/och}"; \
+	cargo build --manifest-path $(RUST_CLI_MANIFEST) --release; \
+	install -d "$$bin_dir" "$$libexec_dir" "$$config_dir"; \
+	install -m 0755 rust-cli/target/release/och "$$bin_dir/och"; \
+	install -m 0755 src/och-config.sh "$$libexec_dir/och-config.sh"; \
+	install -m 0755 src/och-setup.sh "$$libexec_dir/och-setup.sh"; \
+	install -m 0755 src/macos-vpnc-route-wrapper.sh "$$libexec_dir/macos-vpnc-route-wrapper.sh"; \
+	install -m 0755 src/och-sudo-askpass.sh "$$libexec_dir/och-sudo-askpass.sh"; \
+	install -m 0644 examples/ssh_config.example "$$config_dir/ssh_config.example"; \
+	echo "Installed local source build to $$bin_dir/och"
 
 clean:
 	rm -rf .build

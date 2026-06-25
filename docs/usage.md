@@ -8,16 +8,30 @@ OCH 是一个 OpenConnect + SSH 辅助工具。它不会常驻后台保活，而
 
 依赖：
 
-- macOS：`openconnect`、`ssh`、`sudo`、`nc`、系统 Keychain、Rust/Cargo；构建 GUI 需要 Swift 6 / SwiftPM。
-- Debian/Linux：`openconnect`、`ssh`、`sudo`、`ip`、Rust/Cargo。
+- macOS：`openconnect`、`ssh`、`sudo`、`nc`、系统 Keychain。
+- Debian/Linux：`openconnect`、`ssh`、`sudo`、`ip`、`nc`。
 
 安装：
 
 ```bash
-sudo make install
+curl -fsSL https://raw.githubusercontent.com/imyangliu/openconnect-ssh/main/install.sh | bash
 ```
 
-macOS Apple Silicon 默认安装到 `/opt/homebrew`，其他系统默认安装到 `/usr/local`。可以用 `PREFIX=/path/to/prefix sudo make install` 覆盖安装位置。
+安装脚本会下载 GitHub Release 二进制包，不要求本机安装 Rust/Cargo。首版支持 macOS arm64 和 Linux x86_64；macOS 默认安装到 `/opt/homebrew`，Linux 默认安装到 `/usr/local`。可以用 `PREFIX=/path/to/prefix` 覆盖安装位置。
+
+升级：
+
+```bash
+och update
+```
+
+macOS GUI App 会作为 `OCHApp-<version>-darwin-arm64.zip` 独立发布；CLI installer 不自动安装 `.app`。
+
+开发者从源码安装：
+
+```bash
+sudo make install
+```
 
 ## macOS GUI 用法
 

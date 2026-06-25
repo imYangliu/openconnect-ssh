@@ -106,14 +106,8 @@ fn run_update() -> Result<(), String> {
 
     let install_url =
         std::env::var("OCH_INSTALL_URL").unwrap_or_else(|_| DEFAULT_INSTALL_URL.to_string());
-
-    let command_text = if find_tool("curl").is_some() {
-        r#"curl -fsSL "$1" | bash -s -- --update"#
-    } else if find_tool("wget").is_some() {
-        r#"wget -qO- "$1" | bash -s -- --update"#
-    } else {
-        return Err("och update 需要 curl 或 wget".into());
-    };
+    let command_text =
+        update_command_text(find_tool("curl").is_some(), find_tool("wget").is_some())?;
 
     exec_command(
         Command::new("bash")
@@ -122,6 +116,16 @@ fn run_update() -> Result<(), String> {
             .arg("och-update")
             .arg(install_url),
     )
+}
+
+fn update_command_text(has_curl: bool, has_wget: bool) -> Result<&'static str, String> {
+    if has_curl {
+        Ok(r#"curl -fsSL "$1" | bash -s -- --update"#)
+    } else if has_wget {
+        Ok(r#"wget -qO- "$1" | bash -s -- --update"#)
+    } else {
+        Err("och update 需要 curl 或 wget".into())
+    }
 }
 
 fn proxy_command(host: &str, port: &str) -> Result<(), String> {
@@ -220,7 +224,7 @@ pub(crate) fn route_wrapper_path() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_legacy_args;
+    use super::{normalize_legacy_args, update_command_text, DEFAULT_INSTALL_URL};
     use std::ffi::OsString;
 
     #[test]
@@ -232,5 +236,33 @@ mod tests {
             OsString::from("22"),
         ]);
         assert_eq!(args[1], "proxy-command");
+    }
+
+    #[test]
+    fn update_prefers_curl() {
+        let command = update_command_text(true, true).expect("curl update command");
+        assert!(command.starts_with("curl -fsSL"));
+        assert!(command.ends_with("bash -s -- --update"));
+    }
+
+    #[test]
+    fn update_uses_wget_when_curl_is_missing() {
+        let command = update_command_text(false, true).expect("wget update command");
+        assert!(command.starts_with("wget -qO-"));
+        assert!(command.ends_with("bash -s -- --update"));
+    }
+
+    #[test]
+    fn update_requires_a_downloader() {
+        let error = update_command_text(false, false).expect_err("missing downloader");
+        assert!(error.contains("curl 或 wget"));
+    }
+
+    #[test]
+    fn default_update_installer_points_to_github_raw_script() {
+        assert_eq!(
+            DEFAULT_INSTALL_URL,
+            "https://raw.githubusercontent.com/imyangliu/openconnect-ssh/main/install.sh"
+        );
     }
 }

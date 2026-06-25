@@ -45,8 +45,8 @@ install.sh                  安装脚本
 - `ssh`
 - `sudo`
 - `openconnect`
-- Rust/Cargo（安装和构建 Rust CLI）
-- GUI（仅 macOS）：Swift 6、SwiftPM、SwiftUI
+- Rust/Cargo（仅开发者从源码构建需要）
+- GUI 开发（仅 macOS）：Swift 6、SwiftPM、SwiftUI
 - macOS：系统自带 `route`、`nc`、Keychain，以及 Homebrew OpenConnect 的 `vpnc-script`
 - Debian/Linux：`ip`
 
@@ -55,10 +55,16 @@ install.sh                  安装脚本
 安装：
 
 ```bash
-sudo make install
+curl -fsSL https://raw.githubusercontent.com/imyangliu/openconnect-ssh/main/install.sh | bash
 ```
 
-macOS 上如果存在 `/opt/homebrew/bin`，默认安装到 `/opt/homebrew/bin`，实现文件安装到 `/opt/homebrew/libexec/och`。其他系统默认安装到 `/usr/local`。
+安装脚本会识别系统并下载 GitHub Release 二进制。首版支持 macOS arm64 和 Linux x86_64；macOS 默认安装到 `/opt/homebrew`，Linux 默认安装到 `/usr/local`。macOS GUI App 会作为独立 release 包发布，CLI installer 不自动安装 `.app`。
+
+升级：
+
+```bash
+och update
+```
 
 配置：
 
@@ -115,6 +121,7 @@ make help
 make check
 make build
 make smoke
+sudo make install
 ```
 
 常用目标：
@@ -126,8 +133,17 @@ make smoke
 - `make build`：构建 SwiftUI GUI
 - `make run-gui`：构建并启动 GUI
 - `make smoke`：运行轻量 smoke tests
-- `make install`：安装 CLI 和运行时文件
+- `make install`：从本地源码构建并安装 CLI 和运行时文件
 - `make clean`：删除 SwiftPM 构建产物
+
+Release CLI 包命名约定：
+
+- `och-cli-<version>-darwin-arm64.tar.gz`
+- `och-cli-<version>-linux-x86_64.tar.gz`
+
+macOS GUI App 包命名约定：
+
+- `OCHApp-<version>-darwin-arm64.zip`
 
 ## 安全提示
 

@@ -124,6 +124,53 @@ out="$(HOME="$TEST_TMP/home" OS_NAME=Linux PATH="$TEST_TMP/bin:$PATH" OCH_CONFIG
 [[ "$out" == *'VPN 未连接'* && "$out" == *'默认路由:'* ]] \
   || fail "shell och vpn status should dispatch through the single och entrypoint: $out"
 
+# --- Release installer platform and artifact naming ---
+out="$(OCH_INSTALL_LIBRARY_MODE=1 bash -c "source '$ROOT_DIR/install.sh'; OS_NAME=Darwin; ARCH_NAME=arm64; version=v1.2.3; platform=\$(platform_key); printf '%s|%s' \"\$platform\" \"\$(artifact_name \"\$version\" \"\$platform\")\"")"
+[[ "$out" == "darwin-arm64|och-cli-v1.2.3-darwin-arm64.tar.gz" ]] \
+  || fail "installer should resolve macOS arm64 artifact name: $out"
+
+out="$(OCH_INSTALL_LIBRARY_MODE=1 bash -c "source '$ROOT_DIR/install.sh'; OS_NAME=Linux; ARCH_NAME=x86_64; version=v1.2.3; platform=\$(platform_key); printf '%s|%s' \"\$platform\" \"\$(artifact_name \"\$version\" \"\$platform\")\"")"
+[[ "$out" == "linux-x86_64|och-cli-v1.2.3-linux-x86_64.tar.gz" ]] \
+  || fail "installer should resolve Linux x86_64 artifact name: $out"
+
+if OCH_INSTALL_LIBRARY_MODE=1 bash -c "source '$ROOT_DIR/install.sh'; OS_NAME=Linux; ARCH_NAME=arm64; platform_key" >/dev/null 2>"$TEST_TMP/unsupported-platform.err"; then
+  fail "installer should reject unsupported Linux arm64"
+fi
+grep -q 'macOS arm64 和 Linux x86_64' "$TEST_TMP/unsupported-platform.err" \
+  || fail "unsupported platform error should name supported platforms: $(<"$TEST_TMP/unsupported-platform.err")"
+
+# --- Release installer integration with local asset ---
+release_dir="$TEST_TMP/release"
+package_dir="$TEST_TMP/package"
+prefix_dir="$TEST_TMP/prefix"
+config_dir="$TEST_TMP/etc/och"
+mkdir -p "$release_dir" "$package_dir/bin" "$package_dir/libexec/och" "$package_dir/examples"
+printf '%s\n' '#!/usr/bin/env bash' 'echo och-test' >"$package_dir/bin/och"
+printf '%s\n' '#!/usr/bin/env bash' 'echo setup' >"$package_dir/libexec/och/och-setup.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'echo route' >"$package_dir/libexec/och/macos-vpnc-route-wrapper.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'echo askpass' >"$package_dir/libexec/och/och-sudo-askpass.sh"
+printf '%s\n' 'Host och-target' >"$package_dir/examples/ssh_config.example"
+chmod +x "$package_dir/bin/och" "$package_dir/libexec/och/"*.sh
+tar -czf "$release_dir/och-cli-vtest-linux-x86_64.tar.gz" -C "$package_dir" .
+
+OCH_OS_NAME=Linux \
+OCH_ARCH=x86_64 \
+OCH_OS_ID=debian \
+OCH_VERSION=vtest \
+OCH_RELEASE_BASE_URL="file://$release_dir" \
+PREFIX="$prefix_dir" \
+CONFIG_DIR="$config_dir" \
+  bash "$ROOT_DIR/install.sh" --no-deps >/dev/null
+
+[[ -x "$prefix_dir/bin/och" ]] \
+  || fail "installer should install release binary"
+[[ -x "$prefix_dir/libexec/och/och-setup.sh" ]] \
+  || fail "installer should install setup helper"
+[[ -x "$prefix_dir/libexec/och/macos-vpnc-route-wrapper.sh" ]] \
+  || fail "installer should install route wrapper"
+[[ -f "$config_dir/ssh_config.example" ]] \
+  || fail "installer should install example ssh config"
+
 # --- vpnc-script missing path is an explicit failure ---
 if bash -c "source '$ROOT_DIR/src/macos-vpnc-route-wrapper.sh'; VPNC_SCRIPT_BASE='$TEST_TMP/missing-vpnc-script'; run_base_script" >/dev/null 2>"$TEST_TMP/vpnc.err"; then
   fail "run_base_script should fail when VPNC_SCRIPT_BASE is missing"
@@ -292,6 +339,18 @@ assert_not_contains "$ROOT_DIR/install.sh" 'och-vpn-shim|BIN_DIR/och-vpn|/och-vp
   "installer should not publish a separate och-vpn command"
 assert_not_contains "$ROOT_DIR/Makefile" 'och-vpn-shim|bin/och-vpn' \
   "Makefile should not package or check the removed och-vpn shim"
+assert_not_contains "$ROOT_DIR/install.sh" 'cargo|rustc|build-essential|rust-cli/Cargo.toml' \
+  "release installer should not require Rust or local source builds"
+assert_contains "$ROOT_DIR/Makefile" 'cargo build --manifest-path \$\(RUST_CLI_MANIFEST\) --release' \
+  "make install should keep the developer source-build install path"
+assert_contains "$ROOT_DIR/.github/workflows/release.yml" 'och-cli-\$\{version\}-darwin-arm64' \
+  "release workflow should publish the macOS CLI artifact"
+assert_contains "$ROOT_DIR/.github/workflows/release.yml" 'och-cli-\$\{version\}-linux-x86_64' \
+  "release workflow should publish the Linux CLI artifact"
+assert_contains "$ROOT_DIR/.github/workflows/release.yml" 'OCHApp-\$\{version\}-darwin-arm64\.zip' \
+  "release workflow should publish the macOS app artifact"
+assert_contains "$ROOT_DIR/.github/workflows/release.yml" 'macos-26' \
+  "release workflow should build macOS artifacts on an arm64 runner"
 assert_not_contains "$ROOT_DIR/README.md" 'och-vpn' \
   "README should not document a public och-vpn command"
 assert_not_contains "$ROOT_DIR/docs/usage.md" 'och-vpn' \
