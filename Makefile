@@ -1,6 +1,9 @@
 SHELL := /bin/bash
 RUST_CLI_MANIFEST := rust-cli/Cargo.toml
 RUST_CLI_DEBUG_BIN := rust-cli/target/debug/och
+APP_BUNDLE_ID := io.github.imyangliu.och
+HELPER_BUNDLE_ID := io.github.imyangliu.och.helper
+APP_VERSION ?= 0.1.0
 
 SHELL_SCRIPTS := \
 	och \
@@ -92,7 +95,7 @@ run-gui: build build-rust
 		'  <key>CFBundleExecutable</key>' \
 		'  <string>OCHApp</string>' \
 		'  <key>CFBundleIdentifier</key>' \
-		'  <string>io.github.imyangliu.och</string>' \
+		'  <string>$(APP_BUNDLE_ID)</string>' \
 		'  <key>CFBundleName</key>' \
 		'  <string>OCH</string>' \
 		'  <key>CFBundleDisplayName</key>' \
@@ -102,7 +105,7 @@ run-gui: build build-rust
 		'  <key>CFBundleVersion</key>' \
 		'  <string>1</string>' \
 		'  <key>CFBundleShortVersionString</key>' \
-		'  <string>0.1.0</string>' \
+		'  <string>$(APP_VERSION)</string>' \
 		'</dict>' \
 		'</plist>' \
 		> "$$app/Contents/Info.plist"; \
@@ -112,19 +115,19 @@ run-gui: build build-rust
 	echo "OCH launched: $$app"
 
 write-launchdaemon-plist:
-	@plist="$${APP}/Contents/Library/LaunchDaemons/io.github.imyangliu.och.helper.plist"; \
+	@plist="$${APP}/Contents/Library/LaunchDaemons/$(HELPER_BUNDLE_ID).plist"; \
 	printf '%s\n' \
 		'<?xml version="1.0" encoding="UTF-8"?>' \
 		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
 		'<plist version="1.0">' \
 		'<dict>' \
 		'  <key>Label</key>' \
-		'  <string>io.github.imyangliu.och.helper</string>' \
+		'  <string>$(HELPER_BUNDLE_ID)</string>' \
 		'  <key>BundleProgram</key>' \
 		'  <string>Contents/Library/LaunchServices/io.github.imyangliu.och.helper</string>' \
 		'  <key>MachServices</key>' \
 		'  <dict>' \
-		'    <key>io.github.imyangliu.och.helper</key>' \
+		'    <key>$(HELPER_BUNDLE_ID)</key>' \
 		'    <true/>' \
 		'  </dict>' \
 		'</dict>' \
@@ -155,7 +158,7 @@ signed-app:
 		'  <key>CFBundleExecutable</key>' \
 		'  <string>OCHApp</string>' \
 		'  <key>CFBundleIdentifier</key>' \
-		'  <string>io.github.imyangliu.och</string>' \
+		'  <string>$(APP_BUNDLE_ID)</string>' \
 		'  <key>CFBundleName</key>' \
 		'  <string>OCH</string>' \
 		'  <key>CFBundleDisplayName</key>' \
@@ -165,14 +168,16 @@ signed-app:
 		'  <key>CFBundleVersion</key>' \
 		'  <string>1</string>' \
 		'  <key>CFBundleShortVersionString</key>' \
-		'  <string>0.1.0</string>' \
+		'  <string>$(APP_VERSION)</string>' \
 		'</dict>' \
 		'</plist>' \
 		> "$$app/Contents/Info.plist"; \
 	$(MAKE) write-launchdaemon-plist APP="$$app"; \
-	codesign --force --options runtime --timestamp --sign "$$SIGN_IDENTITY" "$$app/Contents/Library/LaunchServices/io.github.imyangliu.och.helper"; \
+	helper="$$app/Contents/Library/LaunchServices/$(HELPER_BUNDLE_ID)"; \
+	codesign --force --options runtime --timestamp --identifier "$(HELPER_BUNDLE_ID)" --sign "$$SIGN_IDENTITY" "$$helper"; \
+	codesign -dv "$$helper" 2>&1 | grep -F "Identifier=$(HELPER_BUNDLE_ID)" >/dev/null; \
 	codesign --force --options runtime --timestamp --sign "$$SIGN_IDENTITY" "$$app/Contents/Resources/bin/och"; \
-	codesign --force --options runtime --timestamp --deep --sign "$$SIGN_IDENTITY" "$$app"; \
+	codesign --force --options runtime --timestamp --identifier "$(APP_BUNDLE_ID)" --sign "$$SIGN_IDENTITY" "$$app"; \
 	codesign --verify --deep --strict --verbose=2 "$$app"; \
 	echo "Signed app: $$app"
 

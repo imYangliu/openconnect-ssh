@@ -70,65 +70,18 @@ jobs:
           install -m 0644 examples/ssh_config.example "${root}/examples/ssh_config.example"
           tar -czf "dist/${package}.tar.gz" -C "${root}" .
 
-      - name: Package GUI app
+      - name: Package signed GUI app
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME}"
-          app=".build/release/OCHApp.app"
-          rm -rf "${app}"
-          mkdir -p "${app}/Contents/MacOS"
-          mkdir -p "${app}/Contents/Resources/bin"
-          mkdir -p "${app}/Contents/Resources/libexec/och"
-          mkdir -p "${app}/Contents/Library/LaunchServices"
-          mkdir -p "${app}/Contents/Library/LaunchDaemons"
-          cp .build/release/OCHApp "${app}/Contents/MacOS/OCHApp"
-          install -m 0755 .build/release/OCHPrivilegedHelper "${app}/Contents/Library/LaunchServices/io.github.imyangliu.och.helper"
-          cp -R .build/release/OCH_OCHApp.bundle "${app}/OCH_OCHApp.bundle"
-          install -m 0755 rust-cli/target/release/och "${app}/Contents/Resources/bin/och"
-          install -m 0755 src/och-config.sh "${app}/Contents/Resources/libexec/och/och-config.sh"
-          install -m 0755 src/och-setup.sh "${app}/Contents/Resources/libexec/och/och-setup.sh"
-          install -m 0755 src/macos-vpnc-route-wrapper.sh "${app}/Contents/Resources/libexec/och/macos-vpnc-route-wrapper.sh"
-          install -m 0755 src/och-sudo-askpass.sh "${app}/Contents/Resources/libexec/och/och-sudo-askpass.sh"
-          printf '%s\n' \
-            '<?xml version="1.0" encoding="UTF-8"?>' \
-            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
-            '<plist version="1.0">' \
-            '<dict>' \
-            '  <key>CFBundleExecutable</key>' \
-            '  <string>OCHApp</string>' \
-            '  <key>CFBundleIdentifier</key>' \
-            '  <string>io.github.imyangliu.och</string>' \
-            '  <key>CFBundleName</key>' \
-            '  <string>OCH</string>' \
-            '  <key>CFBundleDisplayName</key>' \
-            '  <string>OCH</string>' \
-            '  <key>CFBundlePackageType</key>' \
-            '  <string>APPL</string>' \
-            '  <key>CFBundleVersion</key>' \
-            "  <string>${version}</string>" \
-            '  <key>CFBundleShortVersionString</key>' \
-            "  <string>${version#v}</string>" \
-            '</dict>' \
-            '</plist>' \
-            > "${app}/Contents/Info.plist"
-          printf '%s\n' \
-            '<?xml version="1.0" encoding="UTF-8"?>' \
-            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
-            '<plist version="1.0">' \
-            '<dict>' \
-            '  <key>Label</key>' \
-            '  <string>io.github.imyangliu.och.helper</string>' \
-            '  <key>BundleProgram</key>' \
-            '  <string>Contents/Library/LaunchServices/io.github.imyangliu.och.helper</string>' \
-            '  <key>MachServices</key>' \
-            '  <dict>' \
-            '    <key>io.github.imyangliu.och.helper</key>' \
-            '    <true/>' \
-            '  </dict>' \
-            '</dict>' \
-            '</plist>' \
-            > "${app}/Contents/Library/LaunchDaemons/io.github.imyangliu.och.helper.plist"
-          ditto -c -k --keepParent "${app}" "dist/OCHApp-${version}-darwin-arm64.zip"
+          if [[ -z "${SIGN_IDENTITY:-}" ]]; then
+            echo "MACOS_SIGN_IDENTITY secret is required to publish the GUI app; refusing to upload an unsigned helper." >&2
+            exit 2
+          fi
+          make signed-app APP_VERSION="${version#v}"
+          ditto -c -k --keepParent ".build/release/OCH.app" "dist/OCHApp-${version}-darwin-arm64.zip"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

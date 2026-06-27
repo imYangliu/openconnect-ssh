@@ -559,10 +559,20 @@ assert_contains "$ROOT_DIR/Sources/OCHApp/AppModel.swift" 'if config\.hasManaged
   "GUI save/setup should only write managed SSH config when SSH fields are complete"
 assert_contains "$ROOT_DIR/Sources/OCHApp/SSHConfigManager.swift" 'validateSSHConfig\(contents: contents, host: config\.defaultHost\)' \
   "GUI should validate generated managed SSH config before writing it"
+assert_contains "$ROOT_DIR/Sources/OCHApp/SSHConfigManager.swift" 'validateSSHConfig\(contents: contents, host: "__och_validation_probe__"\)' \
+  "GUI should validate the full candidate main SSH config before writing an Include"
 assert_contains "$ROOT_DIR/Sources/OCHApp/SSHConfigManager.swift" 'arguments: \["-F", tempConfig\.path, "-G", host\]' \
   "GUI SSH validation should delegate parsing to OpenSSH"
 assert_contains "$ROOT_DIR/Sources/OCHApp/SSHConfigManager.swift" 'quoteSSHConfigValue\(ochPath\)' \
   "GUI managed SSH ProxyCommand should quote helper paths"
+assert_contains "$ROOT_DIR/Makefile" 'HELPER_BUNDLE_ID := io\.github\.imyangliu\.och\.helper' \
+  "Makefile should define the helper signing identifier in one place"
+assert_contains "$ROOT_DIR/Makefile" 'codesign .*--identifier "\$\(HELPER_BUNDLE_ID\)"' \
+  "signed-app should sign the helper with the XPC signing identifier"
+assert_contains "$ROOT_DIR/.github/workflows/release.yml" 'make signed-app APP_VERSION=' \
+  "release workflow should package the GUI through signed-app"
+assert_contains "$ROOT_DIR/.github/workflows/release.yml" 'refusing to upload an unsigned helper' \
+  "release workflow should not upload an unsigned GUI helper"
 # shellcheck disable=SC2016
 assert_contains "$ROOT_DIR/src/och-setup.sh" 'och_setup_validate_ssh_config "\$tmp_config" "\$OCH_SSH_HOST"' \
   "setup helper should validate managed SSH config before writing it"

@@ -12,4 +12,3 @@ int OCHSetTeamPeerRequirement(xpc_connection_t connection, const char *signing_i
     xpc_release(requirement);
     return 0;
 }
-

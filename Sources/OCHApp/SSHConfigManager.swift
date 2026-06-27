@@ -34,7 +34,7 @@ enum SSHConfigManager {
             contents += "\n"
         }
         contents += "\(includeLine)\n"
-        try validateSSHConfig(contents: "\(includeLine)\n", host: "__och_validation_probe__")
+        try validateSSHConfig(contents: contents, host: "__och_validation_probe__")
         try contents.write(to: ConfigPaths.sshConfig, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: ConfigPaths.sshConfig.path)
     }
