@@ -5,6 +5,7 @@ use std::process::Command;
 
 mod config;
 mod doctor;
+mod i18n;
 mod platform;
 mod service;
 mod setup;
@@ -31,17 +32,21 @@ enum Commands {
     /// Run the interactive setup helper.
     Setup,
     /// Open the full terminal user interface.
+    #[command(visible_alias = "t")]
     Tui,
     /// Diagnose local OCH configuration and runtime prerequisites.
+    #[command(visible_alias = "d")]
     Doctor,
     /// SSH ProxyCommand entrypoint: ensure VPN, then connect stdio to host:port.
     ProxyCommand { host: String, port: String },
     /// Manage the VPN connection.
+    #[command(visible_alias = "v")]
     Vpn {
         #[command(subcommand)]
         command: Option<VpnCommand>,
     },
     /// Manage the macOS privileged service.
+    #[command(visible_alias = "svc")]
     Service {
         #[command(subcommand)]
         command: Option<ServiceCommand>,
@@ -54,19 +59,27 @@ enum Commands {
 
 #[derive(Subcommand, Debug, Clone, Copy)]
 enum VpnCommand {
+    #[command(visible_alias = "c")]
     Connect,
+    #[command(visible_alias = "x")]
     Disconnect,
+    #[command(visible_alias = "s")]
     Status,
+    #[command(visible_alias = "v")]
     Verify,
     Ssh,
+    #[command(visible_alias = "l")]
     Logs,
     Help,
 }
 
 #[derive(Subcommand, Debug, Clone, Copy)]
 enum ServiceCommand {
+    #[command(visible_alias = "i")]
     Install,
+    #[command(visible_alias = "u")]
     Uninstall,
+    #[command(visible_alias = "st")]
     Status,
     #[command(hide = true)]
     Exec,
@@ -215,32 +228,54 @@ fn run_vpn_command(command: VpnCommand) -> Result<(), String> {
 }
 
 fn print_vpn_help() {
-    println!(
-        "\
+    print!("{}", vpn_help_text());
+}
+
+fn vpn_help_text() -> &'static str {
+    "\
 OCH VPN commands
 
-用法:
+Common:
   och vpn connect
-  och vpn disconnect
   och vpn status
   och vpn verify
-  och vpn ssh
   och vpn logs
+
+Aliases:
+  och v c        # och vpn connect
+  och vpn s      # och vpn status
+  och vpn x      # och vpn disconnect
+  och vpn l      # och vpn logs
+
+Examples:
+  och vpn connect
+  och vpn status
+  och vpn disconnect
 "
-    );
 }
 
 fn print_service_help() {
-    println!(
-        "\
+    print!("{}", service_help_text());
+}
+
+fn service_help_text() -> &'static str {
+    "\
 OCH service commands
 
-用法:
+Common:
+  och service install
+  och service status
+
+Aliases:
+  och svc st       # och service status
+  och service i    # och service install
+  och service u    # och service uninstall
+
+Examples:
+  och service status
   och service install
   och service uninstall
-  och service status
 "
-    );
 }
 
 fn helper_path(name: &str) -> Result<PathBuf, String> {
@@ -269,8 +304,16 @@ pub(crate) fn route_wrapper_path() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_legacy_args, update_command_text, DEFAULT_INSTALL_URL};
+    use super::{
+        normalize_legacy_args, service_help_text, update_command_text, vpn_help_text, Cli,
+        Commands, ServiceCommand, VpnCommand, DEFAULT_INSTALL_URL,
+    };
+    use clap::Parser;
     use std::ffi::OsString;
+
+    fn parse_command(args: &[&str]) -> Commands {
+        Cli::try_parse_from(args).unwrap().command.unwrap()
+    }
 
     #[test]
     fn rewrites_legacy_proxy_command_flag() {
@@ -309,5 +352,78 @@ mod tests {
             DEFAULT_INSTALL_URL,
             "https://raw.githubusercontent.com/imyangliu/openconnect-ssh/main/install.sh"
         );
+    }
+
+    #[test]
+    fn top_level_aliases_parse_to_their_commands() {
+        assert!(matches!(parse_command(&["och", "t"]), Commands::Tui));
+        assert!(matches!(parse_command(&["och", "d"]), Commands::Doctor));
+        assert!(matches!(
+            parse_command(&["och", "v", "s"]),
+            Commands::Vpn {
+                command: Some(VpnCommand::Status)
+            }
+        ));
+        assert!(matches!(
+            parse_command(&["och", "svc", "st"]),
+            Commands::Service {
+                command: Some(ServiceCommand::Status)
+            }
+        ));
+    }
+
+    #[test]
+    fn nested_command_aliases_parse_to_their_commands() {
+        assert!(matches!(
+            parse_command(&["och", "vpn", "c"]),
+            Commands::Vpn {
+                command: Some(VpnCommand::Connect)
+            }
+        ));
+        assert!(matches!(
+            parse_command(&["och", "vpn", "x"]),
+            Commands::Vpn {
+                command: Some(VpnCommand::Disconnect)
+            }
+        ));
+        assert!(matches!(
+            parse_command(&["och", "vpn", "v"]),
+            Commands::Vpn {
+                command: Some(VpnCommand::Verify)
+            }
+        ));
+        assert!(matches!(
+            parse_command(&["och", "vpn", "l"]),
+            Commands::Vpn {
+                command: Some(VpnCommand::Logs)
+            }
+        ));
+        assert!(matches!(
+            parse_command(&["och", "service", "i"]),
+            Commands::Service {
+                command: Some(ServiceCommand::Install)
+            }
+        ));
+        assert!(matches!(
+            parse_command(&["och", "service", "u"]),
+            Commands::Service {
+                command: Some(ServiceCommand::Uninstall)
+            }
+        ));
+    }
+
+    #[test]
+    fn manual_help_text_lists_aliases_and_examples() {
+        let vpn_help = vpn_help_text();
+        assert!(vpn_help.contains("Common"));
+        assert!(vpn_help.contains("Aliases"));
+        assert!(vpn_help.contains("och v c"));
+        assert!(vpn_help.contains("och vpn s"));
+
+        let service_help = service_help_text();
+        assert!(service_help.contains("Common"));
+        assert!(service_help.contains("Aliases"));
+        assert!(service_help.contains("och svc st"));
+        assert!(service_help.contains("och service i"));
     }
 }

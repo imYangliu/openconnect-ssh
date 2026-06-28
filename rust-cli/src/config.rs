@@ -184,6 +184,10 @@ pub fn load_runtime(validate_required: bool) -> Result<Runtime, ConfigError> {
     if config_file.is_file() {
         config = parse_config_file(&config_file, validate_required)?;
     }
+    if let Some(language) = non_empty_env("OCH_APP_LANGUAGE") {
+        validate_language(&language)?;
+        config.app_language = language;
+    }
 
     let vpn_password = match non_empty_env("VPN_PASSWORD") {
         Some(value) => Some(value),
@@ -277,10 +281,8 @@ pub fn parse_config_str(
     }
     if let Some(app) = parsed.app {
         if let Some(language) = app.language {
-            match language.as_str() {
-                "system" | "en" | "zh-Hans" | "zh-Hant" => config.app_language = language,
-                _ => return Err(ConfigError::InvalidLanguage(language)),
-            }
+            validate_language(&language)?;
+            config.app_language = language;
         }
     }
 
@@ -301,6 +303,13 @@ fn validate_required_config(config: &OchConfig) -> Result<(), ConfigError> {
         }
     }
     Ok(())
+}
+
+fn validate_language(language: &str) -> Result<(), ConfigError> {
+    match language {
+        "system" | "en" | "zh-Hans" | "zh-Hant" => Ok(()),
+        _ => Err(ConfigError::InvalidLanguage(language.to_string())),
+    }
 }
 
 fn validate_keys(value: &toml::Value) -> Result<(), ConfigError> {

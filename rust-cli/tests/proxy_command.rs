@@ -125,6 +125,7 @@ fn vpn_status_accepts_vpn_only_config() {
         .env("PATH", &bin)
         .env("OS_NAME", "Linux")
         .env("OCH_CONFIG_FILE", &config)
+        .env("OCH_APP_LANGUAGE", "zh-Hans")
         .env("OCH_SECRETS_FILE", temp.path().join("missing-secrets.env"))
         .env("PID_FILE", temp.path().join("missing.pid"))
         .output()
@@ -138,6 +139,39 @@ fn vpn_status_accepts_vpn_only_config() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("VPN 未连接"), "{stdout}");
     assert!(stdout.contains("未配置 [ssh].target_host"), "{stdout}");
+}
+
+#[test]
+fn vpn_status_uses_requested_app_language() {
+    let temp = tempfile::tempdir().unwrap();
+    let bin = fake_bin_dir(temp.path());
+    let config = temp.path().join("config.toml");
+    write_vpn_only_config(&config);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_och"))
+        .arg("vpn")
+        .arg("status")
+        .env("PATH", &bin)
+        .env("OS_NAME", "Linux")
+        .env("OCH_CONFIG_FILE", &config)
+        .env("OCH_APP_LANGUAGE", "en")
+        .env("OCH_SECRETS_FILE", temp.path().join("missing-secrets.env"))
+        .env("PID_FILE", temp.path().join("missing.pid"))
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("VPN disconnected"), "{stdout}");
+    assert!(
+        stdout.contains("[ssh].target_host is not configured"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("VPN 未连接"), "{stdout}");
 }
 
 #[test]

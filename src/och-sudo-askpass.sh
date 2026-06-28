@@ -8,7 +8,9 @@ case "$prompt" in
     ;;
 esac
 
+export OCH_ASKPASS_PROMPT="$prompt"
 osascript <<OSA
-display dialog "$prompt" default answer "" with hidden answer buttons {"OK"} default button "OK"
+set dialogPrompt to system attribute "OCH_ASKPASS_PROMPT"
+display dialog dialogPrompt default answer "" with hidden answer buttons {"OK"} default button "OK"
 text returned of result
 OSA

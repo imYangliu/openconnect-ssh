@@ -1,4 +1,5 @@
 use crate::config::{OchConfig, Runtime, RuntimeTarget};
+use crate::i18n;
 use crate::platform::{
     command_output, discover_openconnect_pid, find_tool, is_macos, process_looks_like_openconnect,
     require_tool, tail_lines,
@@ -308,6 +309,7 @@ impl ServiceVpn {
     }
 
     fn connect(&self, password: String) -> Result<String, String> {
+        self.validate_connect_config()?;
         require_tool(&self.openconnect_bin())?;
         if self.is_macos() {
             require_tool("route")?;
@@ -315,7 +317,6 @@ impl ServiceVpn {
         } else {
             require_tool("ip")?;
         }
-        self.validate_connect_config()?;
         if password.is_empty() {
             return Err("VPN password is required".into());
         }
@@ -421,22 +422,27 @@ impl ServiceVpn {
 
     fn status_with_prefix(&self, prefix: &str) -> Result<String, String> {
         let mut output = String::from(prefix);
+        let language = &self.config.app_language;
         if let Some(pid) = self.connected_pid() {
-            output.push_str(&format!("VPN 已连接，PID: {pid}\n"));
+            output.push_str(&format!("{}\n", i18n::vpn_connected_pid(language, &pid)));
         } else {
-            output.push_str("VPN 未连接\n");
+            output.push_str(i18n::vpn_disconnected(language));
+            output.push('\n');
         }
 
-        output.push_str("默认路由:\n");
+        output.push_str(i18n::default_route_label(language));
+        output.push('\n');
         if let Ok(line) = self.default_route_line() {
             output.push_str(&format!("{line}\n"));
         }
 
         let host = self.target_host();
         if host.is_empty() {
-            output.push_str("目标路由: 未配置 [ssh].target_host\n");
+            output.push_str(i18n::missing_target_route(language));
+            output.push('\n');
         } else {
-            output.push_str("目标路由:\n");
+            output.push_str(i18n::target_route_label(language));
+            output.push('\n');
             if let Ok(line) = self.route_line_for_host(&host) {
                 output.push_str(&format!("{line}\n"));
             }
@@ -855,6 +861,24 @@ mod tests {
             serde_json::from_str(&handle_request_json(&raw)).expect("decode response");
         assert!(!response.ok);
         assert!(response.error.unwrap().contains("[vpn].host"));
+    }
+
+    #[test]
+    fn status_uses_requested_app_language() {
+        let mut config = config();
+        config.app_language = "en".into();
+        let request = ServiceRequest {
+            action: ACTION_STATUS.into(),
+            config,
+            target: RuntimeTarget::default(),
+            vpn_password: None,
+        };
+        let raw = serde_json::to_string(&request).expect("encode request");
+        let response: ServiceResponse =
+            serde_json::from_str(&handle_request_json(&raw)).expect("decode response");
+        assert!(response.ok);
+        assert!(response.output.contains("VPN disconnected"));
+        assert!(!response.output.contains("VPN 未连接"));
     }
 
     #[test]

@@ -56,6 +56,17 @@ final class AppModel: ObservableObject {
         configText != lastSyncedConfigText
     }
 
+    var overviewIssues: [OverviewIssue] {
+        OverviewIssue.issues(
+            for: config,
+            includeInstalled: includeInstalled,
+            serviceIsAvailable: serviceStatus.isAvailable,
+            serviceNeedsAttention: serviceNeedsAttention,
+            sshConfigured: config.hasManagedSSHConfig,
+            hasUnsavedConfigTextChanges: hasUnsavedConfigTextChanges
+        )
+    }
+
     func loadConfiguration(reportToConfigPane: Bool = false) {
         do {
             if FileManager.default.fileExists(atPath: ConfigPaths.configTOML.path) {
@@ -298,7 +309,9 @@ final class AppModel: ObservableObject {
                 do {
                     let request = PrivilegedServiceRequest(action: action, appConfig: config, vpnPassword: vpnPassword)
                     let requestJSON = try JSONEncoder().encode(request)
-                    let responseJSON = try await OCHXPCClient().perform(requestJSON: requestJSON)
+                    let responseJSON = try await withTimeout(seconds: 3) {
+                        try await OCHXPCClient().perform(requestJSON: requestJSON)
+                    }
                     return .success(try JSONDecoder().decode(PrivilegedServiceResponse.self, from: responseJSON))
                 } catch {
                     return .failure(error)
@@ -478,6 +491,10 @@ final class AppModel: ObservableObject {
             : L10n.tr("status.service.using_fallback", language: config.appLanguage)
     }
 
+    private var serviceNeedsAttention: Bool {
+        !serviceStatus.lastError.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var connectionSummaryText: String {
         switch connectionRunState {
         case .connected:
@@ -489,6 +506,10 @@ final class AppModel: ObservableObject {
         case .unknown:
             return L10n.tr("status.connection.unknown", language: config.appLanguage)
         }
+    }
+
+    var connectionStatusIsWarning: Bool {
+        StatusParsing.connectionStatusIsWarning(connectionRunState, isError: connectionStatusIsError)
     }
 
     var traySystemImage: String {
@@ -522,6 +543,8 @@ final class AppModel: ObservableObject {
     private func commandEnvironment(askpassPath: String, vpnPassword: String? = nil) -> [String: String] {
         var environment = [
             "OCH_CONFIG_FILE": ConfigPaths.configTOML.path,
+            "OCH_APP_LANGUAGE": config.appLanguage.resolvedCode,
+            "OCH_DISABLE_SERVICE": "1",
             "SUDO_ASKPASS": askpassPath
         ]
         if let vpnPassword {
@@ -553,7 +576,12 @@ final class AppModel: ObservableObject {
             switch sshConfigError {
             case .validationFailed(let details):
                 return L10n.tr("error.ssh_config.validation_failed", language: config.appLanguage, details)
+            case .invalidField(let field, let details):
+                return L10n.tr("error.ssh_config.invalid_field", language: config.appLanguage, field, details)
             }
+        }
+        if let timeoutError = error as? AsyncTimeoutError, timeoutError == .timedOut {
+            return L10n.tr("error.xpc.timeout", language: config.appLanguage)
         }
         return error.localizedDescription
     }

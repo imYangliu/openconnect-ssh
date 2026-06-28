@@ -1,4 +1,6 @@
 .DS_Store
+.codegraph/
+.understand-anything/
 .idea/
 .vscode/
 .build/

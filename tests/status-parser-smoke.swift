@@ -34,7 +34,12 @@ struct StatusParserSmoke {
 
         expect(StatusParsing.parseConnectionRunState("VPN 已连接，PID: 123", isError: false) == .connected, "connected vpn")
         expect(StatusParsing.parseConnectionRunState("VPN 未连接", isError: false) == .disconnected, "disconnected vpn")
+        expect(StatusParsing.parseConnectionRunState("VPN 已連線，PID: 123", isError: false) == .connected, "traditional connected vpn")
+        expect(StatusParsing.parseConnectionRunState("VPN 未連線", isError: false) == .disconnected, "traditional disconnected vpn")
         expect(StatusParsing.parseConnectionRunState("anything", isError: true) == .error, "errored vpn")
+        expect(StatusParsing.connectionStatusIsWarning(.disconnected, isError: false), "disconnected warning")
+        expect(!StatusParsing.connectionStatusIsWarning(.connected, isError: false), "connected not warning")
+        expect(!StatusParsing.connectionStatusIsWarning(.error, isError: true), "error not warning")
 
         print("status parser smoke passed")
     }

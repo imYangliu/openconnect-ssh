@@ -22,6 +22,20 @@
 
 "overview.title" = "OCH 連線概覽";
 "overview.subtitle" = "管理 VPN 連線、macOS 服務模式和 SSH 存取狀態。";
+"overview.ready.title" = "可以連線";
+"overview.ready.detail" = "核心設定看起來完整。你可以連線、重新整理狀態，或進入詳細面板檢查。";
+"overview.attention.title" = "還有幾項需要處理";
+"overview.attention.detail" = "先處理下面的問題，日常 VPN 和 SSH 使用會更穩定可預期。";
+"overview.issue.vpn.title" = "補全 VPN 設定";
+"overview.issue.vpn.detail" = "在連線面板填寫 VPN 閘道和使用者。";
+"overview.issue.service_fallback.title" = "安裝或批准 root helper";
+"overview.issue.service_fallback.detail" = "簽名的 macOS helper 目前不可達。debug 建置可以回退到 sudo，但正式服務模式還沒就緒。";
+"overview.issue.service.title" = "檢查服務模式";
+"overview.issue.service.detail" = "上一次服務操作回報了錯誤。打開服務面板查看原始狀態和下一步。";
+"overview.issue.ssh_include.title" = "安裝 SSH Include";
+"overview.issue.ssh_include.detail" = "加入託管 Include 行，讓 OpenSSH 讀取 OCH Host。";
+"overview.issue.config.title" = "儲存或套用 TOML 編輯";
+"overview.issue.config.detail" = "TOML 編輯器有未儲存改動，可能和設定表單不一致。";
 "card.connection.title" = "VPN";
 "card.service.title" = "服務模式";
 "card.ssh_include.title" = "SSH Include";
@@ -57,7 +71,7 @@
 "status.service.requires_approval" = "服務需要在系統設定中批准";
 "status.service.unknown" = "服務狀態未知";
 "status.service.using_service" = "VPN 操作會透過本機 root XPC helper 執行。";
-"status.service.using_fallback" = "簽名 helper 不可用時，debug 和 CLI-only 建置可以回退到 sudo 模式。";
+"status.service.using_fallback" = "正式 helper 模式不可用。debug 和 CLI-only 建置可以回退到 sudo 模式。";
 "status.service.install_success" = "服務安裝完成。";
 "status.service.uninstall_success" = "服務已解除安裝。";
 "status.service.command_failed" = "服務命令執行失敗。";
@@ -212,6 +226,8 @@
 "error.toml.invalid_value" = "第 %d 行 %@ 的值無效：%@";
 "error.toml.missing_required" = "缺少必填 TOML 欄位：%@";
 "error.ssh_config.validation_failed" = "產生的 SSH 設定未通過 ssh 校驗：%@";
+"error.ssh_config.invalid_field" = "SSH 設定欄位 %@ 無效：%@";
+"error.xpc.timeout" = "特權 helper 未及時回應。";
 
 "validation.vpn_gateway_required" = "必須填寫 VPN 閘道。";
 "validation.vpn_user_required" = "必須填寫 VPN 使用者。";

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct CommandResult {
@@ -12,12 +13,17 @@ private final class OutputBox: @unchecked Sendable {
     var data = Data()
 }
 
+enum CommandRunnerError: Error, Equatable {
+    case timedOut(executable: String, timeout: TimeInterval)
+}
+
 enum CommandRunner {
     static func run(
         executable: String,
         arguments: [String],
         environment: [String: String] = [:],
-        stdin: String? = nil
+        stdin: String? = nil,
+        timeout: TimeInterval = 30
     ) throws -> CommandResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -58,7 +64,23 @@ enum CommandRunner {
             try inputPipe.fileHandleForWriting.close()
         }
 
-        process.waitUntilExit()
+        let waitGroup = DispatchGroup()
+        waitGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            process.waitUntilExit()
+            waitGroup.leave()
+        }
+
+        if waitGroup.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            if waitGroup.wait(timeout: .now() + 1) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                waitGroup.wait()
+            }
+            readGroup.wait()
+            throw CommandRunnerError.timedOut(executable: executable, timeout: timeout)
+        }
+
         readGroup.wait()
         return CommandResult(status: process.terminationStatus, output: String(data: box.data, encoding: .utf8) ?? "")
     }

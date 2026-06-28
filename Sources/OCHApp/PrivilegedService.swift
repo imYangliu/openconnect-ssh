@@ -106,7 +106,7 @@ struct PrivilegedServiceConfig: Encodable {
         self.proxy_local_host = config.proxyLocalHost
         self.proxy_local_port = config.proxyLocalPort
         self.proxy_remote_port = config.proxyRemotePort
-        self.app_language = config.appLanguage.rawValue
+        self.app_language = config.appLanguage.resolvedCode
     }
 }
 

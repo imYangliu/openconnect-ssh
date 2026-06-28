@@ -86,7 +86,7 @@ och setup
 och tui
 ```
 
-`och tui` 提供 Overview、Connection、SSH、Routes & Proxy、Service、Config 和 Logs 页面。常用按键是 `Up/Down` 切左侧页面、`Left/Right` 或 `Tab` 切字段、`Enter` 执行动作、`Ctrl-S` 保存、`Esc` 退出；SSH Host 导入列表用 `PageUp/PageDown` 选择。
+`och tui` 提供 Overview、Connection、SSH、Routes & Proxy、Service、Config 和 Logs 页面。常用按键是 `1` 到 `7` 直达页面、`Left/Right` 切页面、`Up/Down` 或 `Tab` 切字段、`Enter` 执行动作、`r` 刷新当前页、`a` 开关自动刷新、`Ctrl-S` 保存、`Esc` 退出；SSH Host 导入列表用 `PageUp/PageDown` 选择。数字跳页只在非文本输入焦点生效，正在编辑字段时会输入数字。
 
 本机健康检查：
 
@@ -133,6 +133,17 @@ och vpn verify
 och vpn logs
 och doctor
 och vpn disconnect
+```
+
+常用短别名：
+
+```bash
+och d          # och doctor
+och t          # och tui
+och v c        # och vpn connect
+och vpn s      # och vpn status
+och vpn l      # och vpn logs
+och svc st     # och service status
 ```
 
 ## 排障

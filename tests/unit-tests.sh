@@ -479,6 +479,13 @@ assert_contains "$ROOT_DIR/src/och-vpn.sh" 'sudo -n true' \
   "shell VPN helper should try cached sudo credentials before askpass fallback"
 assert_contains "$ROOT_DIR/src/och-sudo-askpass.sh" 'Administrator password for OCH' \
   "askpass helper should clearly ask for the administrator password"
+assert_contains "$ROOT_DIR/src/och-sudo-askpass.sh" 'OCH_ASKPASS_PROMPT=' \
+  "askpass helper should pass prompt through environment instead of interpolating AppleScript"
+assert_contains "$ROOT_DIR/src/och-sudo-askpass.sh" 'system attribute "OCH_ASKPASS_PROMPT"' \
+  "askpass helper should read the prompt inside AppleScript from the environment"
+# shellcheck disable=SC2016
+assert_not_contains "$ROOT_DIR/src/och-sudo-askpass.sh" 'display dialog "\$prompt"' \
+  "askpass helper should not embed raw shell prompt text inside AppleScript"
 assert_not_contains "$ROOT_DIR/README.md" '由 .*sudo -A.* 触发|默认.*sudo -A' \
   "README should not say the GUI defaults to sudo -A"
 assert_not_contains "$ROOT_DIR/docs/usage.md" '由 .*sudo -A.* 触发|默认.*sudo -A' \

@@ -41,6 +41,7 @@ struct ContentView: View {
         .onReceive(Self.autoRefreshTimer) { now in
             autoRefresh(now: now)
         }
+        .background(WindowPlacementReader().frame(width: 0, height: 0))
         .sheet(isPresented: $model.showingSetupWizard) {
             SetupWizardView(model: model)
         }
@@ -341,10 +342,22 @@ struct ContentView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12)
-            ], alignment: .leading, spacing: 12) {
+            OverviewReadinessPanel(
+                issues: model.overviewIssues,
+                readyTitle: tr("overview.ready.title"),
+                readyDetail: tr("overview.ready.detail"),
+                attentionTitle: tr("overview.attention.title"),
+                attentionDetail: tr("overview.attention.detail"),
+                translate: tr
+            )
+
+            LazyVGrid(
+                columns: [
+                    GridItem(.adaptive(minimum: UILayout.statusCardMinWidth), spacing: 12)
+                ],
+                alignment: .leading,
+                spacing: 12
+            ) {
                 StatusCard(
                     title: tr("card.connection.title"),
                     value: model.connectionSummaryText,
@@ -402,7 +415,11 @@ struct ContentView: View {
             }
 
             if !model.connectionStatusText.isEmpty {
-                NoticeView(message: model.connectionStatusText, isError: model.connectionStatusIsError)
+                NoticeView(
+                    message: model.connectionStatusText,
+                    isError: model.connectionStatusIsError,
+                    isWarning: model.connectionStatusIsWarning
+                )
             }
 
             FormSection(tr("section.service_mode"), systemImage: "checkmark.shield") {
@@ -478,7 +495,11 @@ struct ContentView: View {
             }
 
             if !model.connectionStatusText.isEmpty {
-                NoticeView(message: model.connectionStatusText, isError: model.connectionStatusIsError)
+                NoticeView(
+                    message: model.connectionStatusText,
+                    isError: model.connectionStatusIsError,
+                    isWarning: model.connectionStatusIsWarning
+                )
             }
 
             HStack(spacing: 10) {
@@ -985,6 +1006,82 @@ private enum AppPane: CaseIterable, Identifiable {
     }
 }
 
+private struct OverviewReadinessPanel: View {
+    let issues: [OverviewIssue]
+    let readyTitle: String
+    let readyDetail: String
+    let attentionTitle: String
+    let attentionDetail: String
+    let translate: (String) -> String
+
+    private var isReady: Bool {
+        issues.isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: isReady ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                    .font(.title3)
+                    .foregroundStyle(isReady ? Color.green : Color.orange)
+                    .frame(width: 28)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(verbatim: isReady ? readyTitle : attentionTitle)
+                        .font(.headline)
+                    Text(verbatim: isReady ? readyDetail : attentionDetail)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            if !issues.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(issues, id: \.self) { issue in
+                        OverviewIssueRow(issue: issue, translate: translate)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background((isReady ? Color.green : Color.orange).opacity(0.10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke((isReady ? Color.green : Color.orange).opacity(0.28))
+                .allowsHitTesting(false)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct OverviewIssueRow: View {
+    let issue: OverviewIssue
+    let translate: (String) -> String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: issue.systemImage)
+                .foregroundStyle(Color.orange)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: translate(issue.titleKey))
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                Text(verbatim: translate(issue.detailKey))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
 private struct StatusCard: View {
     let title: String
     let value: String
@@ -1017,10 +1114,16 @@ private struct StatusCard: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
-        .frame(minHeight: 118, maxHeight: 138, alignment: .topLeading)
+        .frame(minHeight: 124, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.45))
+                .allowsHitTesting(false)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
     }
 }
 

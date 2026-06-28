@@ -142,6 +142,27 @@ impl Pane {
             Pane::Logs => "Logs",
         }
     }
+
+    fn number(self) -> usize {
+        Pane::ALL
+            .iter()
+            .position(|pane| *pane == self)
+            .map(|index| index + 1)
+            .unwrap_or(1)
+    }
+
+    fn tab_title(self) -> String {
+        format!("{} {}", self.number(), self.title())
+    }
+
+    fn from_number_key(ch: char) -> Option<Self> {
+        let index = ch.to_digit(10)? as usize;
+        if (1..=Pane::ALL.len()).contains(&index) {
+            Some(Pane::ALL[index - 1])
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -340,6 +361,14 @@ impl TuiState {
             }
             KeyCode::Char('r') if !self.is_text_field_active() => {
                 self.refresh_current_pane(true, Instant::now())
+            }
+            KeyCode::Char(ch) if !self.is_text_field_active() => {
+                if let Some(pane) = Pane::from_number_key(ch) {
+                    self.pane = pane;
+                    self.active = 0;
+                    self.status = self.pane_hint();
+                }
+                Ok(())
             }
             KeyCode::Backspace => self.backspace(),
             KeyCode::Char(ch) => self.push_char(ch),
@@ -1103,7 +1132,7 @@ fn render(frame: &mut Frame, state: &TuiState) {
     let footer = Paragraph::new(Line::from(vec![
         Span::styled(state.status.clone(), status_style(&state.status)),
         Span::styled(
-            " | ←/→ tabs | ↑/↓ fields | click select | Tab next | Auto: ",
+            " | 1-7 jump | ←/→ tabs | ↑/↓ fields | Tab next | Ctrl-S save | Auto: ",
             theme::muted(),
         ),
         Span::styled(
@@ -1151,7 +1180,7 @@ fn render_tabs(frame: &mut Frame, area: Rect, state: &TuiState) {
         .unwrap_or(0);
     let titles = Pane::ALL
         .iter()
-        .map(|pane| pane.title())
+        .map(|pane| pane.tab_title())
         .collect::<Vec<_>>();
     let tabs = Tabs::new(titles)
         .block(panel_block("OCH"))
@@ -1193,7 +1222,7 @@ fn tab_at(area: Rect, x: u16, y: u16) -> Option<Pane> {
     }
     let mut cursor = area.x.saturating_add(1);
     for pane in Pane::ALL {
-        let width = pane.title().chars().count() as u16;
+        let width = pane.tab_title().chars().count() as u16;
         if x >= cursor && x < cursor.saturating_add(width) {
             return Some(pane);
         }
@@ -1852,12 +1881,14 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|frame| render(frame, &state)).unwrap();
         let text = format!("{:?}", terminal.backend().buffer());
-        assert!(text.contains("Overview"));
+        assert!(text.contains("1 Overview"));
         assert!(text.contains("Connection"));
         assert!(text.contains("VPN"));
         assert!(text.contains("Service"));
         assert!(text.contains("Config / SSH"));
         assert!(text.contains("Recent Logs"));
+        assert!(text.contains("1-7 jump"));
+        assert!(text.contains("Ctrl-S save"));
     }
 
     #[test]
@@ -1953,6 +1984,35 @@ mod tests {
     }
 
     #[test]
+    fn number_keys_jump_between_panes_without_stealing_text_input() {
+        let mut state = state_for_test();
+
+        state
+            .handle_key(KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE))
+            .unwrap();
+        assert_eq!(state.pane, Pane::Routes);
+        assert_eq!(state.active, 0);
+        assert!(state.status.contains("Routes & Proxy"));
+
+        state.pane = Pane::Connection;
+        state.active = 0;
+        state.config.vpn_host.clear();
+        state
+            .handle_key(KeyEvent::new(KeyCode::Char('7'), KeyModifiers::NONE))
+            .unwrap();
+        assert_eq!(state.pane, Pane::Connection);
+        assert_eq!(state.config.vpn_host, "7");
+
+        state.active = 4;
+        state
+            .handle_key(KeyEvent::new(KeyCode::Char('7'), KeyModifiers::NONE))
+            .unwrap();
+        assert_eq!(state.pane, Pane::Logs);
+        assert_eq!(state.active, 0);
+        assert!(state.status.contains("Logs"));
+    }
+
+    #[test]
     fn auto_refresh_shortcuts_do_not_steal_text_input() {
         let mut state = state_for_test();
         state.pane = Pane::Connection;
@@ -1981,7 +2041,7 @@ mod tests {
         let size = Size::new(100, 28);
 
         state
-            .handle_mouse(left_click(29, 1), size)
+            .handle_mouse(left_click(36, 1), size)
             .expect("tab click should succeed");
         assert_eq!(state.pane, Pane::Routes);
         assert_eq!(state.active, 0);

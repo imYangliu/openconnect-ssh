@@ -56,13 +56,22 @@ enum StatusParsing {
         if isError {
             return .error
         }
-        if output.contains("VPN 已连接") || output.localizedCaseInsensitiveContains("VPN connected") {
+        if output.contains("VPN 已连接")
+            || output.contains("VPN 已連線")
+            || output.localizedCaseInsensitiveContains("VPN connected") {
             return .connected
         }
-        if output.contains("VPN 未连接") || output.localizedCaseInsensitiveContains("VPN disconnected") {
+        if output.contains("VPN 未连接")
+            || output.contains("VPN 未連線")
+            || output.localizedCaseInsensitiveContains("VPN disconnected") {
             return .disconnected
         }
         return .unknown
+    }
+
+    static func connectionStatusIsWarning(_ state: ConnectionRunState, isError: Bool) -> Bool {
+        guard !isError else { return false }
+        return state == .disconnected || state == .unknown
     }
 
     private static func parseBool(_ value: String) -> Bool? {

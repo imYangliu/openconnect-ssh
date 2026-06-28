@@ -22,6 +22,20 @@
 
 "overview.title" = "OCH Connection Overview";
 "overview.subtitle" = "Control the VPN connection, macOS service mode, and SSH access from one place.";
+"overview.ready.title" = "Ready to connect";
+"overview.ready.detail" = "Core settings look complete. You can connect, refresh status, or inspect detailed panes.";
+"overview.attention.title" = "Needs attention before it is smooth";
+"overview.attention.detail" = "Fix the items below to make everyday VPN and SSH use predictable.";
+"overview.issue.vpn.title" = "Finish VPN settings";
+"overview.issue.vpn.detail" = "Add the VPN gateway and user in Connection.";
+"overview.issue.service_fallback.title" = "Install or approve the root helper";
+"overview.issue.service_fallback.detail" = "The signed macOS helper is not reachable. OCH can fall back to sudo in debug builds, but formal service mode is not ready.";
+"overview.issue.service.title" = "Check service mode";
+"overview.issue.service.detail" = "The last service operation reported an error. Open Service for the raw status and next action.";
+"overview.issue.ssh_include.title" = "Install SSH Include";
+"overview.issue.ssh_include.detail" = "Add the managed Include line so OpenSSH can read OCH hosts.";
+"overview.issue.config.title" = "Save or apply TOML edits";
+"overview.issue.config.detail" = "The TOML editor has unsaved changes that may diverge from the settings form.";
 "card.connection.title" = "VPN";
 "card.service.title" = "Service Mode";
 "card.ssh_include.title" = "SSH Include";
@@ -57,7 +71,7 @@
 "status.service.requires_approval" = "Service requires approval in System Settings";
 "status.service.unknown" = "Service status unknown";
 "status.service.using_service" = "VPN actions will use the local root XPC helper.";
-"status.service.using_fallback" = "When the signed helper is unavailable, debug and CLI-only builds may fall back to sudo mode.";
+"status.service.using_fallback" = "Formal helper mode is unavailable. Debug and CLI-only builds may fall back to sudo mode.";
 "status.service.install_success" = "Service installed.";
 "status.service.uninstall_success" = "Service uninstalled.";
 "status.service.command_failed" = "Service command failed.";
@@ -212,6 +226,8 @@
 "error.toml.invalid_value" = "Invalid value at line %d for %@: %@";
 "error.toml.missing_required" = "Missing required TOML key: %@";
 "error.ssh_config.validation_failed" = "Generated SSH config did not pass ssh validation: %@";
+"error.ssh_config.invalid_field" = "Invalid SSH config field %@: %@";
+"error.xpc.timeout" = "The privileged helper did not respond in time.";
 
 "validation.vpn_gateway_required" = "VPN gateway is required.";
 "validation.vpn_user_required" = "VPN user is required.";

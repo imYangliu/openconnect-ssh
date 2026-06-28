@@ -1,4 +1,5 @@
 use crate::config::Runtime;
+use crate::i18n;
 use crate::platform::{
     command_output, discover_openconnect_pid, exec_command, find_tool, is_macos,
     process_looks_like_openconnect, read_trimmed, require_tool, tail_lines,
@@ -206,20 +207,21 @@ impl Vpn {
     }
 
     fn status_local(&self) -> Result<(), String> {
+        let language = &self.runtime.config.app_language;
         if let Some(pid) = self.connected_pid() {
-            println!("VPN 已连接，PID: {pid}");
+            println!("{}", i18n::vpn_connected_pid(language, &pid));
         } else {
-            println!("VPN 未连接");
+            println!("{}", i18n::vpn_disconnected(language));
         }
 
-        println!("默认路由:");
+        println!("{}", i18n::default_route_label(language));
         let _ = self.default_route_line().map(|line| println!("{line}"));
 
         let host = self.target_host();
         if host.is_empty() {
-            println!("目标路由: 未配置 [ssh].target_host");
+            println!("{}", i18n::missing_target_route(language));
         } else {
-            println!("目标路由:");
+            println!("{}", i18n::target_route_label(language));
             let _ = self
                 .route_line_for_host(&host)
                 .map(|line| println!("{line}"));

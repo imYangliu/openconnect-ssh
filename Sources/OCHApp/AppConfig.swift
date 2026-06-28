@@ -69,6 +69,86 @@ struct AppConfig: Equatable {
     }
 }
 
+enum OverviewIssue: CaseIterable, Equatable {
+    case missingVPNConfig
+    case serviceFallback
+    case serviceNeedsAttention
+    case sshIncludeMissing
+    case unsavedConfig
+
+    var titleKey: String {
+        switch self {
+        case .missingVPNConfig:
+            return "overview.issue.vpn.title"
+        case .serviceFallback:
+            return "overview.issue.service_fallback.title"
+        case .serviceNeedsAttention:
+            return "overview.issue.service.title"
+        case .sshIncludeMissing:
+            return "overview.issue.ssh_include.title"
+        case .unsavedConfig:
+            return "overview.issue.config.title"
+        }
+    }
+
+    var detailKey: String {
+        switch self {
+        case .missingVPNConfig:
+            return "overview.issue.vpn.detail"
+        case .serviceFallback:
+            return "overview.issue.service_fallback.detail"
+        case .serviceNeedsAttention:
+            return "overview.issue.service.detail"
+        case .sshIncludeMissing:
+            return "overview.issue.ssh_include.detail"
+        case .unsavedConfig:
+            return "overview.issue.config.detail"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .missingVPNConfig:
+            return "lock.shield"
+        case .serviceFallback:
+            return "shield.slash"
+        case .serviceNeedsAttention:
+            return "shield.slash"
+        case .sshIncludeMissing:
+            return "terminal"
+        case .unsavedConfig:
+            return "doc.badge.clock"
+        }
+    }
+
+    static func issues(
+        for config: AppConfig,
+        includeInstalled: Bool,
+        serviceIsAvailable: Bool,
+        serviceNeedsAttention: Bool,
+        sshConfigured: Bool,
+        hasUnsavedConfigTextChanges: Bool
+    ) -> [OverviewIssue] {
+        var issues: [OverviewIssue] = []
+        if !config.hasVPNConfig {
+            issues.append(.missingVPNConfig)
+        }
+        if !serviceIsAvailable {
+            issues.append(.serviceFallback)
+        }
+        if serviceNeedsAttention {
+            issues.append(.serviceNeedsAttention)
+        }
+        if sshConfigured && !includeInstalled {
+            issues.append(.sshIncludeMissing)
+        }
+        if hasUnsavedConfigTextChanges {
+            issues.append(.unsavedConfig)
+        }
+        return issues
+    }
+}
+
 enum ConfigPaths {
     static let configDirectory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/och", isDirectory: true)

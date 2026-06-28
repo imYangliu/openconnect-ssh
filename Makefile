@@ -59,11 +59,17 @@ check-rust:
 check-swift-parsing:
 	@status_bin="$$(mktemp "$${TMPDIR:-/tmp}/och-status-parser.XXXXXX")"; \
 	config_bin="$$(mktemp "$${TMPDIR:-/tmp}/och-config-parser.XXXXXX")"; \
-	trap 'rm -f "$$status_bin" "$$config_bin"' EXIT; \
+	window_bin="$$(mktemp "$${TMPDIR:-/tmp}/och-window-placement.XXXXXX")"; \
+	timeout_bin="$$(mktemp "$${TMPDIR:-/tmp}/och-async-timeout.XXXXXX")"; \
+	trap 'rm -f "$$status_bin" "$$config_bin" "$$window_bin" "$$timeout_bin"' EXIT; \
 	swiftc Sources/OCHApp/StatusParsing.swift tests/status-parser-smoke.swift -o "$$status_bin"; \
 	"$$status_bin"; \
-	swiftc Sources/OCHApp/AppConfig.swift tests/app-config-smoke-support.swift tests/app-config-smoke.swift -o "$$config_bin"; \
-	"$$config_bin"
+	swiftc Sources/OCHApp/AppConfig.swift Sources/OCHApp/CommandRunner.swift Sources/OCHApp/SSHConfigManager.swift tests/app-config-smoke-support.swift tests/app-config-smoke.swift -o "$$config_bin"; \
+	"$$config_bin"; \
+	swiftc -parse-as-library Sources/OCHApp/WindowPlacement.swift tests/window-placement-smoke.swift -o "$$window_bin"; \
+	"$$window_bin"; \
+	swiftc -parse-as-library Sources/OCHApp/AsyncTimeout.swift tests/async-timeout-smoke.swift -o "$$timeout_bin"; \
+	"$$timeout_bin"
 
 build-rust:
 	cargo build --manifest-path $(RUST_CLI_MANIFEST)
