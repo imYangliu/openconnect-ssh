@@ -2,7 +2,7 @@
 
 OCH 让你用普通的 SSH 命令访问 VPN 内的主机。OpenSSH 调用 OCH 连接目标端口，必要时启动 OpenConnect，再把连接交给 SSH。支持 macOS 和 Debian/Linux。
 
-[Go 命令行版变更与升级说明](docs/releases/v0.2.0-alpha.1.md)
+[下载 Go 命令行版（macOS / Linux）](https://github.com/imYangliu/openconnect-ssh/releases/tag/v0.1.0-alpha.2)
 
 ## 快速开始
 
@@ -25,4 +25,4 @@ och setup
 | 查看连接日志 | `och vpn logs` |
 | 断开 VPN | `och vpn disconnect` |
 
-安装发布版、旧版迁移和排障见[使用指南](docs/usage.md)。路由、DNS 和凭据见[配置说明](docs/configuration.md)。开发时运行 `make build` 和 `make check`。
+安装、使用和排障见[使用指南](docs/usage.md)。路由、DNS 和凭据见[配置说明](docs/configuration.md)。开发时运行 `make build` 和 `make check`。

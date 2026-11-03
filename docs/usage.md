@@ -18,9 +18,3 @@
 - `och vpn status` 查看 OCH 管理的本机 OpenConnect 进程。
 - `och vpn verify` 单独测试配置的目标端口。端口失败可能来自路由、远端主机或 SSH 服务。
 - `och vpn logs` 显示最近 80 行 OpenConnect 日志，默认位于 `~/.config/och/run/openconnect.log`。
-
-## 从旧版迁移
-
-升级前，用旧版 `och vpn disconnect` 断开旧进程。如果曾安装 macOS CLI 后台服务，用旧版执行 `sudo och service uninstall`。如果曾在旧 App 里注册服务，在旧 App 中卸载。Go 版通过 sudo 按需运行 OpenConnect。
-
-原 config.toml、secrets.env 和托管 Host 可继续使用。若可执行文件换了位置，重新运行 `och setup` 并保留别名，以更新 ProxyCommand。Go 版兼容旧的 `--proxy-command` 拼写。SSH 反向转发可使用 OpenSSH 自身的 RemoteForward。
