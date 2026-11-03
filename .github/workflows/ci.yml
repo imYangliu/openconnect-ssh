@@ -12,11 +12,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
 
-      - name: Check (portable, no Swift)
-        run: make check-portable
+      - name: Check CLI
+        run: make check
 
   check-macos:
     runs-on: macos-latest
@@ -25,8 +29,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
       - name: Install shellcheck
         run: brew install shellcheck
 
-      - name: Check (full, with swift build)
+      - name: Check CLI
         run: make check

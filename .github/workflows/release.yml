@@ -17,8 +17,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
       - name: Build CLI
-        run: cargo build --manifest-path rust-cli/Cargo.toml --release
+        run: make build
 
       - name: Package CLI
         run: |
@@ -27,11 +31,8 @@ jobs:
           package="och-cli-${version}-linux-x86_64"
           root="dist/${package}"
           mkdir -p "${root}/bin" "${root}/libexec/och" "${root}/examples"
-          install -m 0755 rust-cli/target/release/och "${root}/bin/och"
-          install -m 0755 src/och-config.sh "${root}/libexec/och/och-config.sh"
-          install -m 0755 src/och-setup.sh "${root}/libexec/och/och-setup.sh"
+          install -m 0755 build/bin/och "${root}/bin/och"
           install -m 0755 src/macos-vpnc-route-wrapper.sh "${root}/libexec/och/macos-vpnc-route-wrapper.sh"
-          install -m 0755 src/och-sudo-askpass.sh "${root}/libexec/och/och-sudo-askpass.sh"
           install -m 0644 examples/ssh_config.example "${root}/examples/ssh_config.example"
           tar -czf "dist/${package}.tar.gz" -C "${root}" .
 
@@ -42,18 +43,19 @@ jobs:
           path: dist/*.tar.gz
 
   macos:
-    name: macOS CLI and App
+    name: macOS CLI
     runs-on: macos-26
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build CLI
-        run: cargo build --manifest-path rust-cli/Cargo.toml --release
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
 
-      - name: Build GUI
-        run: swift build -c release
+      - name: Build CLI
+        run: make build
 
       - name: Package CLI
         run: |
@@ -62,34 +64,16 @@ jobs:
           package="och-cli-${version}-darwin-arm64"
           root="dist/${package}"
           mkdir -p "${root}/bin" "${root}/libexec/och" "${root}/examples"
-          install -m 0755 rust-cli/target/release/och "${root}/bin/och"
-          install -m 0755 src/och-config.sh "${root}/libexec/och/och-config.sh"
-          install -m 0755 src/och-setup.sh "${root}/libexec/och/och-setup.sh"
+          install -m 0755 build/bin/och "${root}/bin/och"
           install -m 0755 src/macos-vpnc-route-wrapper.sh "${root}/libexec/och/macos-vpnc-route-wrapper.sh"
-          install -m 0755 src/och-sudo-askpass.sh "${root}/libexec/och/och-sudo-askpass.sh"
           install -m 0644 examples/ssh_config.example "${root}/examples/ssh_config.example"
           tar -czf "dist/${package}.tar.gz" -C "${root}" .
-
-      - name: Package signed GUI app
-        env:
-          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME}"
-          if [[ -z "${SIGN_IDENTITY:-}" ]]; then
-            echo "MACOS_SIGN_IDENTITY secret is required to publish the GUI app; refusing to upload an unsigned helper." >&2
-            exit 2
-          fi
-          make signed-app APP_VERSION="${version#v}"
-          ditto -c -k --keepParent ".build/release/OCH.app" "dist/OCHApp-${version}-darwin-arm64.zip"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: |
-            dist/*.tar.gz
-            dist/*.zip
+          path: dist/*.tar.gz
 
   publish:
     name: Publish GitHub release

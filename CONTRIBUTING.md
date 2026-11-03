@@ -5,13 +5,10 @@
 Run the local checks:
 
 ```bash
-make check            # macOS：含 swift build
-make check-portable   # Linux/WSL：不依赖 Swift 工具链
+make check
 ```
 
-Both run shell syntax checks, `shellcheck`, and the smoke tests over the `och`
-entrypoint, the internal VPN helper scripts, the macOS route wrapper, the sudo
-askpass helper, and `install.sh`.
+This builds the Go CLI and checks its configuration, installer, route wrapper and SSH proxy.
 
 ## Security Rules
 

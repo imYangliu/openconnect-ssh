@@ -4,3 +4,4 @@ Host och-target
   Port 22
   ServerAliveInterval 30
   ServerAliveCountMax 3
+  ProxyCommand och proxy-command %h %p

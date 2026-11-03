@@ -228,7 +228,6 @@ install_debian_deps() {
     curl \
     gzip \
     iproute2 \
-    netcat-openbsd \
     openconnect \
     openssh-client \
     sudo \
@@ -249,7 +248,7 @@ install_system_deps() {
       if is_debian_like; then
         install_debian_deps
       else
-        die "暂不支持自动安装此 Linux 发行版依赖: ${OS_ID:-unknown}。请手动安装 openconnect、openssh-client、nc、iproute2 后用 --no-deps 运行"
+        die "暂不支持自动安装此 Linux 发行版依赖: ${OS_ID:-unknown}。请手动安装 openconnect、openssh-client、iproute2 后用 --no-deps 运行"
       fi
       ;;
     *)
@@ -316,7 +315,6 @@ validate_package() {
   local root="$1"
 
   [[ -x "$root/bin/och" ]] || die "release 包缺少可执行文件: bin/och"
-  [[ -f "$root/libexec/och/och-setup.sh" ]] || die "release 包缺少 helper: libexec/och/och-setup.sh"
   [[ -f "$root/libexec/och/macos-vpnc-route-wrapper.sh" ]] || die "release 包缺少 helper: libexec/och/macos-vpnc-route-wrapper.sh"
   [[ -f "$root/examples/ssh_config.example" ]] || die "release 包缺少示例配置: examples/ssh_config.example"
 }

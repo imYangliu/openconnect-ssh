@@ -12,8 +12,7 @@ OCH 的非敏感配置只有一份 TOML：
 
 VPN 密码不要写入 TOML。
 
-- CLI `och setup`：启动 Rust 全屏 TUI 向导，并写入 `~/.config/och/secrets.env`；文件权限必须是 `0600`，macOS 和 Linux/Debian 相同。SSH 可以跳过。
-- macOS GUI：可以在启用保存时写入 Keychain service `och`。
+- CLI `och setup`：通过终端逐项配置，并写入 `~/.config/och/secrets.env`；文件权限必须是 `0600`，macOS 和 Linux/Debian 相同。SSH 可以跳过。
 - 临时运行：可以直接传 `VPN_PASSWORD=...`，优先级高于 secret 文件和 macOS Keychain fallback。
 
 CLI secret 文件只允许这一项：
@@ -48,7 +47,7 @@ extra = ["10.0.0.0/8", "192.168.0.0/16"]
 mode = "openconnect"
 
 [paths]
-# Runtime helper paths are fixed by the installed app or CLI layout.
+# Runtime helper paths are fixed by the installed CLI layout.
 
 [app]
 language = "system"
@@ -63,17 +62,18 @@ language = "system"
 | `host` | 是 | VPN 网关地址，传给 `openconnect`。 |
 | `user` | 是 | VPN 用户名。 |
 | `auth_group` | 否 | 认证组/realm；网关不需要时留空。 |
+| `helper` | 否 | 已安装的 VPN 管理程序绝对路径。OCH 通过 `sudo -n` 调用其 connect、status 和 disconnect；网关、凭据、路由与日志由 helper 管理。需预先授权这三个操作。 |
 
 ### `[ssh]`
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
 | `host` | 是 | 托管 SSH Host alias，例如 `och-target`；用户日常通过 `ssh <host>` 使用。 |
-| `target_host` | 是 | 真实目标主机；也用于连接后验证路由和端口。 |
+| `target_host` | 是 | 真实目标主机；也用于测试目标端口。 |
 | `user` | 否 | SSH 用户；默认是当前系统用户。 |
 | `port` | 否 | SSH 端口；默认 `22`。 |
 
-GUI、`och setup` 和 `och tui` 会在这些字段完整且 SSH 启用时生成 `~/.ssh/och.config` 中的托管 Host。跳过 SSH 时不会写入或删除旧 managed SSH 文件。旧 `src/och-setup.sh` 仅保留为 legacy compatibility。
+`och setup` 会在这些字段完整且 SSH 启用时生成 `~/.ssh/och.config` 中的托管 Host。跳过 SSH 时不会写入或删除旧 managed SSH 文件。
 
 ### `[routes]`
 
@@ -96,13 +96,7 @@ Linux/Debian 不再自动选择第三方分流脚本。需要额外路由时，�
 
 ### `[proxy]`
 
-可选 section。默认配置不会写入 `[proxy]`；只有在 GUI 中启用 Proxy，或手动添加这个 section 时，OCH 才会保留这些反向端口映射字段。当前 Rust CLI 主路径是 `ssh och-target`，不依赖 `[proxy]`。
-
-| 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `local_host` | 否 | 反向端口映射的本地地址，启用后默认 `127.0.0.1`；保留给 GUI/旧 wrapper 兼容或后续能力。 |
-| `local_port` | 否 | 反向端口映射的本地端口，默认 `7890`。 |
-| `remote_port` | 否 | 反向端口映射的远端端口，默认 `7890`。 |
+兼容旧设置的 local_host、local_port 和 remote_port。用 OpenSSH 的 RemoteForward 配置反向端口映射。
 
 ### `[paths]`
 
