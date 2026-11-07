@@ -1,26 +1,11 @@
 # Contributing
 
-## Before Opening a PR
+Run `make check` for the native Go CLI, vet, Go tests and isolated integration checks.
 
-Run the local checks:
+Keep cmd/och/main.go as the executable entry. Implementation packages live under internal/: config, routing, vpn, proxy, daemon and cli. Keep unit tests beside their owning package; tests/ holds compiled CLI integration checks. Format Go edits with gofmt. Tests use temporary configuration, loopback endpoints and injected VPN session factories; never use personal SSH files, real VPN credentials or privileged network changes.
 
-```bash
-make check
-```
+The v0 OpenConnect workflow is archived under `legacy/openconnect/`. New code does not preserve its CLI or TOML compatibility. Document current commands in `docs/usage.md` and configuration in `docs/configuration.md`.
 
-This builds the Go CLI and checks its configuration, installer, route wrapper and SSH proxy.
+Native protocol dependencies include copyleft-licensed code. Preserve upstream notices and source provenance; see `THIRD_PARTY_NOTICES.md` before distributing binaries.
 
-## Security Rules
-
-- Do not commit real VPN usernames, passwords, hostnames, IP addresses, or ports.
-- Keep all user-specific values in local config files outside the repository, or in ignored files.
-- If you add new examples, use placeholders instead of real infrastructure.
-
-## Scope
-
-Small, targeted fixes are preferred:
-
-- improve reliability
-- improve configurability
-- improve documentation
-- keep Linux shell compatibility intact
+For package or interface refactors, save a baseline binary before editing and compare it with the candidate using `python3 tests/equivalence.py /path/to/baseline-och build/bin/och`.

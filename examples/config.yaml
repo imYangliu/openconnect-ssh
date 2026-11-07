@@ -1,0 +1,39 @@
+# Native YAML configuration. Incompatible with the legacy OpenConnect CLI.
+# socket defaults to <configuration directory>/run/och.sock.
+profiles:
+  campus:
+    protocol: anyconnect
+    server: https://vpn.example.com
+    username: your_user
+    password_env: OCH_CAMPUS_PASSWORD
+    # auth_state_file: auto
+    # cookie_env: OCH_CAMPUS_COOKIE
+    # auth_group: students
+  lab:
+    protocol: atrust
+    server: https://vpn.example.org
+    username: your_user
+    password_env: OCH_LAB_PASSWORD
+    # auth_state_file: auto
+    # login_domain: local
+    # auth_type: auth/psw
+    # For CAS: auth_type: auth/cas, then run och login --via lab.
+    # tunnel_server_name: vpn.example.org
+
+listeners:
+  campus:
+    listen: "127.0.0.1:1080"
+    via: campus
+  lab:
+    listen: "127.0.0.1:2080"
+    via: lab
+
+policies:
+  campus-auto:
+    rules:
+      - domain_suffix: internal.example
+        via: campus
+      - cidr: 10.20.0.0/16
+        via: campus
+      - domain: public.example.com
+        via: direct

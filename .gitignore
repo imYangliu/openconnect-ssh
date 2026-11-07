@@ -13,3 +13,6 @@ secrets.env
 
 /bin/
 /build/
+
+# Local investigation notes and diagnostic helpers.
+.audit/

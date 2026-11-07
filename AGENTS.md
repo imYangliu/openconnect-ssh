@@ -1,5 +1,5 @@
 # Repository guidelines
 
-OCH is a Go command-line tool for macOS and Linux. Keep configuration, setup, VPN lifecycle and command dispatch in the root Go package. The macOS vpnc-script hook is in src/. The public CLI is och.
+OCH is a Go command-line tool for macOS and Linux. Keep the executable entry in cmd/och. Put YAML configuration in internal/config, routing in internal/routing, native VPN sessions and protocol adapters in internal/vpn, mixed proxies in internal/proxy, IPC and service lifecycle in internal/daemon, command handling in internal/cli, isolated CAS browser capture in internal/browser, private authentication snapshots in internal/authstate, public method discovery in internal/discovery, first-run workflows in internal/setup, and user-service integration in internal/service. Keep configuration independent of runtime packages; routing and proxy depend on small dial interfaces. The archived external-OpenConnect scripts and macOS vpnc-script hook are in legacy/openconnect/. Native VPN backends must not change system routes. The public CLI is och.
 
 Format Go changes with gofmt. Run make check for the build, vet, Go tests and isolated integration checks. Keep tests independent of real credentials, privileged network changes and personal SSH configuration. Document commands in docs/usage.md and configuration in docs/configuration.md.

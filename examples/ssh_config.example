@@ -1,7 +1,10 @@
-Host och-target
-  HostName your-campus-host.example
-  User your-ssh-user
-  Port 22
-  ServerAliveInterval 30
-  ServerAliveCountMax 3
-  ProxyCommand och proxy-command %h %p
+# Copy only the desired Host block into your own SSH config.
+Host campus-fixed
+  HostName server.internal.example
+  User your_ssh_user
+  ProxyCommand /absolute/path/to/och proxy-command --config /absolute/path/to/config.yaml --via campus %h %p
+
+Host campus-auto
+  HostName 10.20.0.10
+  User your_ssh_user
+  ProxyCommand /absolute/path/to/och proxy-command --config /absolute/path/to/config.yaml --policy campus-auto %h %p

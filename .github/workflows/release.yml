@@ -30,10 +30,16 @@ jobs:
           version="${GITHUB_REF_NAME}"
           package="och-cli-${version}-linux-x86_64"
           root="dist/${package}"
-          mkdir -p "${root}/bin" "${root}/libexec/och" "${root}/examples"
+          mkdir -p "${root}/bin" "${root}/examples"
           install -m 0755 build/bin/och "${root}/bin/och"
-          install -m 0755 src/macos-vpnc-route-wrapper.sh "${root}/libexec/och/macos-vpnc-route-wrapper.sh"
           install -m 0644 examples/ssh_config.example "${root}/examples/ssh_config.example"
+          install -m 0644 examples/config.yaml "${root}/examples/config.yaml"
+          install -m 0644 LICENSE THIRD_PARTY_NOTICES.md "${root}/"
+          cp -R third_party "${root}/third_party"
+          mkdir -p "${root}/source"
+          git archive HEAD | tar -x -C "${root}/source"
+          go mod vendor
+          cp -R vendor "${root}/source/vendor"
           tar -czf "dist/${package}.tar.gz" -C "${root}" .
 
       - name: Upload artifact
@@ -63,10 +69,16 @@ jobs:
           version="${GITHUB_REF_NAME}"
           package="och-cli-${version}-darwin-arm64"
           root="dist/${package}"
-          mkdir -p "${root}/bin" "${root}/libexec/och" "${root}/examples"
+          mkdir -p "${root}/bin" "${root}/examples"
           install -m 0755 build/bin/och "${root}/bin/och"
-          install -m 0755 src/macos-vpnc-route-wrapper.sh "${root}/libexec/och/macos-vpnc-route-wrapper.sh"
           install -m 0644 examples/ssh_config.example "${root}/examples/ssh_config.example"
+          install -m 0644 examples/config.yaml "${root}/examples/config.yaml"
+          install -m 0644 LICENSE THIRD_PARTY_NOTICES.md "${root}/"
+          cp -R third_party "${root}/third_party"
+          mkdir -p "${root}/source"
+          git archive HEAD | tar -x -C "${root}/source"
+          go mod vendor
+          cp -R vendor "${root}/source/vendor"
           tar -czf "dist/${package}.tar.gz" -C "${root}" .
 
       - name: Upload artifacts
