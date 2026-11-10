@@ -16,9 +16,6 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
-
       - name: Check CLI
         run: make check
 
@@ -32,9 +29,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-
-      - name: Install shellcheck
-        run: brew install shellcheck
 
       - name: Check CLI
         run: make check

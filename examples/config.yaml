@@ -37,3 +37,32 @@ policies:
         via: campus
       - domain: public.example.com
         via: direct
+
+# Native SSH profiles are separate from ~/.ssh/config aliases.
+# Defining forwards does not start them; run: och forward jupyter callback
+ssh:
+  compute:
+    address: compute.internal.example:22
+    username: your_ssh_user
+    via: campus
+    identity_file: ~/.ssh/id_ed25519
+    known_hosts_file: ~/.ssh/known_hosts
+    # password_env: OCH_COMPUTE_SSH_PASSWORD
+    # key_passphrase_env: OCH_COMPUTE_KEY_PASSPHRASE
+
+forwards:
+  jupyter:
+    direction: local
+    ssh: compute
+    listen: 8888
+    target: 8888
+  callback:
+    direction: remote
+    ssh: compute
+    listen: 9000
+    target: 3000
+  database:
+    direction: local
+    via: campus
+    listen: 15432
+    target: "database.internal.example:5432"

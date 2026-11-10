@@ -105,14 +105,18 @@ func (m *conntrackMgr) getByID(authID uint64) *conntrack {
 func (m *conntrackMgr) getByAuthResponseIP(ip authIP) *conntrack {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	var matched *conntrack
 	for _, ct := range m.byKey {
 		meta := ct.authMeta
-		if authIPType(meta.atype) == ip.Atype && meta.srcPort == ip.SrcPort && meta.dstPort == ip.DestPort &&
+		if (ip.Protocol == 0 || meta.proto == ip.Protocol) && authIPType(meta.atype) == ip.Atype && meta.srcPort == ip.SrcPort && meta.dstPort == ip.DestPort &&
 			meta.srcIP.Equal(net.ParseIP(ip.SrcAddr)) && meta.dstIP.Equal(net.ParseIP(ip.DestAddr)) {
-			return ct
+			if matched != nil {
+				return nil
+			}
+			matched = ct
 		}
 	}
-	return nil
+	return matched
 }
 
 func (m *conntrackMgr) getOrCreate(key, appID, nodeGroupID string) *conntrack {
@@ -164,7 +168,6 @@ func (m *conntrackMgr) observePacket(key string, packet []byte, incoming bool) b
 		ct.expiresAt = now.Add(defaultConntrackTTL)
 		return true
 	}
-	ct.authMeta.proto = int(ipPacket.Protocol())
 	switch ipPacket.Protocol() {
 	case zctcpip.TCP:
 		tcpPacket := zctcpip.TCPPacket(ipPacket.Payload())

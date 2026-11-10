@@ -89,6 +89,12 @@ func (s *storedSession) Err() error {
 	}
 	return nil
 }
+func (s *storedSession) Done() <-chan struct{} {
+	if h, ok := s.Session.(interface{ Done() <-chan struct{} }); ok {
+		return h.Done()
+	}
+	return nil
+}
 func ClearAuthentication(p config.Profile) error {
 	if p.AuthStateFile == "" {
 		return nil

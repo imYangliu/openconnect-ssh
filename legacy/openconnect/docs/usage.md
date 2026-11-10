@@ -2,6 +2,8 @@
 
 本文带你安装 OCH、配置 VPN，并通过 SSH 登录目标主机。示例中的 `vpn.example.com`、`server.internal.example` 和账号均为占位内容，请替换为自己的信息。
 
+本文仅适用于外部 OpenConnect 版本 `v0.1.0-alpha.2`。现行原生 CLI 使用不同配置和命令，见[原生使用指南](../../../docs/usage.md)。
+
 ## 安装 OCH
 
 ### 安装预编译版
@@ -29,7 +31,7 @@ OCH_VERSION=v0.1.0-alpha.2 bash och-install.sh --no-deps
 需要 Git、Go 1.24+ 和 make。先准备上述运行依赖，再运行：
 
 ```bash
-git clone https://github.com/imYangliu/openconnect-ssh.git
+git clone --branch v0.1.0-alpha.2 --depth 1 https://github.com/imYangliu/openconnect-ssh.git
 cd openconnect-ssh
 make build
 sudo make install
@@ -169,15 +171,15 @@ och vpn verify
 
 ## 运行隔离验证
 
-在源码仓库根目录运行：
+当前 checkout 只保留旧版安装器和网络脚本，不再提供旧 CLI 的完整验证入口。可在仓库根目录运行归档脚本的隔离检查：
 
 ```bash
-python3 .agents/skills/verify/scripts/verify.py
+bash legacy/openconnect/tests-unit-v0.sh
 ```
 
-该命令构建 CLI，使用临时 HOME、虚构凭据和本地 TCP 服务验证数据转发，再运行 `make check`。它不连接真实 VPN，也不修改系统网络或个人 SSH 配置。终端会输出证据目录，目录中的 `report.json` 和命令日志在临时配置清理后保留。
+该命令使用本地模拟发布包和临时目录检查归档安装器及 vpnc wrapper，不连接真实 VPN，不验证旧 CLI 的登录或转发。当前原生验证入口不能用作旧版本的能力证明。
 
-已覆盖的功能与验证缺口见 [Feature Map](../.agents/skills/verify/features/README.md)。模拟 VPN 启动通过不代表真实 VPN 登录或系统分流已经验证。
+归档范围见[说明](../README.md)。脚本检查通过不代表真实 VPN 登录或系统分流已经验证。
 
 ## 查看和移除安装文件
 

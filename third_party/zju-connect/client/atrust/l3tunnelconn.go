@@ -613,9 +613,10 @@ func (c *l3TunnelConn) completeAuthentication(authID uint64, token string, authE
 }
 
 func (c *l3TunnelConn) writeFrame(data []byte) error {
+	heartbeat := len(data) >= 2 && data[0] == l3Version && data[1] == cmdHeartbeatReq
 	if c.writeFrameHook != nil {
 		err := c.writeFrameHook(data)
-		if err == nil {
+		if err == nil && !heartbeat {
 			atomic.StoreUint32(&c.heartbeatHasWrite, 1)
 		}
 		return err
@@ -627,7 +628,7 @@ func (c *l3TunnelConn) writeFrame(data []byte) error {
 	if err == nil && n != len(data) {
 		return io.ErrShortWrite
 	}
-	if err == nil {
+	if err == nil && !heartbeat {
 		atomic.StoreUint32(&c.heartbeatHasWrite, 1)
 	}
 	return err

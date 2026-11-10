@@ -17,6 +17,8 @@
 | `internal/routing` | 有序域名/CIDR 规则、解析及连接选择。 |
 | `internal/vpn` | 共享会话、原生 AnyConnect/aTrust 后端和用户态网络栈。 |
 | `internal/proxy` | 混合协议入口、缓冲连接和双向数据转发。 |
+| `internal/diagnostic` | 诊断报告、检查结果和稳定错误类别。 |
+| `internal/forward` | 原生 SSH 认证、共享 SSH 会话和正反向 TCP 转发。 |
 | `internal/daemon` | Unix socket 协议、客户端、监听和服务生命周期。 |
 | `tests` | 真实编译产物的 CLI 集成检查。 |
 
@@ -45,13 +47,17 @@ flowchart TD
 
 固定监听收到请求后不再应用 SSH 分流策略。用户可将该端口配置为 sing-box 等工具的上游代理，由调用方负责分流。打开代理端口本身不接管系统流量。
 
+`och forward` 在前台管理所选 `forwards` 规则和具名 `ssh` 会话。同次命令中的规则复用同一 SSH 配置的连接。VPN 仍由后台管理，前台通过 IPC 获取字节流，再交给 Go SSH 库完成握手和通道转发。`internal/forward` 只依赖注入的拨号函数，不导入 daemon 或 VPN 后端。正向目标由 SSH 服务器连接；反向目标由 OCH 所在机器直连。停止该命令会关闭其监听和应用连接，保留共享 VPN 后台。
+
 ## 连接契约
 
-内部后端提供 `DialContext(context.Context, network, address) (net.Conn, error)` 与 `Close() error`。VPN 协议不接触 CLI 或策略。后端不能在连接失败后转为本机直连。
+内部后端提供 `DialContext(context.Context, network, address) (net.Conn, error)` 与 `Close() error`。TCP 流、连接式 UDP 和 ICMP Echo 使用同一跟踪与注销逻辑。`Manager.Dial` 保留 TCP 调用契约，`DialNetwork` 选择网络；UDP 与 ping 必须指定 VPN。VPN 协议不接触 CLI 或策略。后端不能在连接失败后转为本机直连。
 
 SSH 自动策略按规则顺序匹配域名、域名后缀或 CIDR，未匹配直连。域名后缀匹配必须具有标签边界。CIDR 匹配时解析出的目标 IP 必须用于实际拨号，避免第二次解析改变目的地址。固定去向的域名交给 VPN 后端解析。Fake IP 映射不在首版范围。
 
-SOCKS5 仅提供 TCP CONNECT。HTTP 支持 CONNECT 和普通 HTTP 代理请求。所有监听限制到本机回环地址。Unix socket 使用私有目录和文件权限，不输出凭据。SSH stdout 只传数据，错误与诊断使用 stderr。
+SOCKS5 提供 TCP CONNECT 和 UDP ASSOCIATE。UDP 关联属于 TCP 控制连接和当前 VPN 会话；后台共享一个代理处理器，限制关联总数。每个目标持有一个连接式 UDP socket 和有界队列，保留数据报边界，来源固定与分片检查在本地代理边界完成。HTTP 支持 CONNECT 和普通 HTTP 代理请求。所有监听限制到本机回环地址。Unix socket 使用私有目录和文件权限，不输出凭据。SSH stdout 只传数据，错误与诊断使用 stderr。
+
+`och ping` 通过有超时的单次 IPC 请求调用 `Manager.Ping`，前台负责次数、间隔和统计。原生 ICMP 适配器在发包前注册有界回包队列，向现有 VPN 传输写入 IP 包，并从入站包分派匹配的真实 Echo Reply。它绕过依赖库 PingConn 先等通知再读队列的早到回包缺陷，不使用内核 raw socket。aTrust 的 UDP 和 ICMP 在发包前通过与 L3 转发相同的资源匹配器检查权限；包级的无资源丢弃仍保留，避免单个目标拒绝使共享会话失效。
 
 ## 验证边界
 
@@ -76,3 +82,10 @@ Bootstrap 在前台完成一次认证，将可复用状态写入私有状态文�
 状态采用权限保护而非加密：当前用户拥有的 0700 父目录、0600 常规文件、符号链接拒绝、网关/协议/认证域/账号/认证组绑定、原子替换和目录同步。会话生命周期内持有独占锁，刷新写入不能与另一进程竞争。Logout 先停止初始化/活动流/刷新，再删除状态，并阻止清理期间重新初始化。
 
 AnyConnect 的本地 sing-openconnect 补丁只增加成功认证 cookie 的回调；aTrust 使用其客户端状态接口，并在认证成功后、隧道建立前保存。没有把密码或一次性 CAS 回调写入缓存。服务端拒绝过期状态时要求登录，普通网络故障保留状态。
+
+
+## Doctor 诊断
+
+`Router.Resolve` 统一产生拨号决策，普通连接和后台 `diagnose` 请求共用该逻辑。域名、后缀和 CIDR 按配置中的实际顺序处理；CIDR 查询选中的 IP 直接用于后续拨号，不再次解析。诊断返回选择的路径、命中规则与 DNS 方式，再分别检查 VPN 初始化和目标 TCP。结果来自运行中的后台配置，前台文件的解析成功不表示后台已重载它。
+
+`och doctor` 的原生 SSH 和转发检查留在前台，复用 `internal/forward` 的认证与会话实现。检查直接建立和关闭连接，不启动转发 worker。临时端口探测会立即释放监听；已有监听不会被停止或替换。`internal/diagnostic` 定义同一份报告，供后台、原生探测和 CLI 文本及 JSON 输出使用。配置包不依赖诊断运行时。

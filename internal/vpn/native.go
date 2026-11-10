@@ -129,6 +129,13 @@ type packetSession struct {
 	once           sync.Once
 	errMu          sync.Mutex
 	terminal       error
+	addresses      []netip.Addr
+	dnsServers     []netip.Addr
+	writePacket    func([]byte) error
+	life           context.Context
+	writes         chan packetWrite
+	echoMu         sync.Mutex
+	echoes         map[uint16]*echoConn
 }
 
 func newPacketSession(ctx context.Context, addresses, dns []netip.Addr, mtu int, read func(context.Context) ([]byte, error), write func([]byte) error, closeTransport func() error) (*packetSession, error) {
@@ -140,14 +147,20 @@ func newPacketSession(ctx context.Context, addresses, dns []netip.Addr, mtu int,
 		return nil, err
 	}
 	life, cancel := context.WithCancel(ctx)
-	s := &packetSession{device: device, stack: stack, cancel: cancel, closeTransport: closeTransport}
+	s := &packetSession{device: device, stack: stack, cancel: cancel, closeTransport: closeTransport,
+		addresses: append([]netip.Addr(nil), addresses...), dnsServers: append([]netip.Addr(nil), dns...), writePacket: write, life: life,
+		writes: make(chan packetWrite, 64), echoes: make(map[uint16]*echoConn)}
 	fail := s.invalidate
+	go s.writeLoop()
 	go func() {
 		for {
 			b, err := read(life)
 			if err != nil {
 				fail(err)
 				return
+			}
+			if s.dispatchEcho(b) {
+				continue
 			}
 			if _, err = device.Write([][]byte{b}, 0); err != nil {
 				fail(err)
@@ -165,7 +178,7 @@ func newPacketSession(ctx context.Context, addresses, dns []netip.Addr, mtu int,
 				return
 			}
 			// AnyConnect can reconnect while TCP retransmits a dropped packet.
-			if err = write(b[:sizes[0]]); err != nil && !errors.Is(err, oc.ErrDataChannelNotReady) {
+			if err = s.sendPacket(life, b[:sizes[0]]); err != nil && !errors.Is(err, oc.ErrDataChannelNotReady) {
 				fail(err)
 				return
 			}
@@ -174,20 +187,22 @@ func newPacketSession(ctx context.Context, addresses, dns []netip.Addr, mtu int,
 	go func() { <-life.Done(); s.Close() }()
 	return s, nil
 }
+
 func (s *packetSession) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	if network != "tcp" {
-		return nil, errors.New("native VPN supports TCP connections only")
-	}
 	if err := s.Err(); err != nil {
 		return nil, fmt.Errorf("VPN packet transport stopped: %w", err)
 	}
-	return s.stack.DialContext(ctx, network, address)
+	if network == "tcp" {
+		return s.dialTCP(ctx, address)
+	}
+	return s.dialPacket(ctx, network, address, nil, nil)
 }
 func (s *packetSession) Err() error {
 	s.errMu.Lock()
 	defer s.errMu.Unlock()
 	return s.terminal
 }
+func (s *packetSession) Done() <-chan struct{} { return s.life.Done() }
 func (s *packetSession) setError(err error) {
 	s.errMu.Lock()
 	defer s.errMu.Unlock()
@@ -205,7 +220,20 @@ func (s *packetSession) invalidate(err error) {
 }
 func (s *packetSession) Close() error {
 	s.setError(net.ErrClosed)
-	s.once.Do(func() { s.cancel(); _ = s.closeTransport(); _ = s.device.Close() })
+	s.once.Do(func() {
+		s.cancel()
+		s.echoMu.Lock()
+		var echoes []*echoConn
+		for _, c := range s.echoes {
+			echoes = append(echoes, c)
+		}
+		s.echoMu.Unlock()
+		for _, c := range echoes {
+			c.Close()
+		}
+		_ = s.closeTransport()
+		_ = s.device.Close()
+	})
 	return nil
 }
 
@@ -493,7 +521,8 @@ func newATrustSession(ctx context.Context, p config.Profile, password string) (S
 	resources, _ := c.DNSResource()
 	return &aTrustSession{client: c, packets: packets, domains: domains, dns: resources}, nil
 }
-func (s *aTrustSession) Close() error { return s.packets.Close() }
+func (s *aTrustSession) Close() error          { return s.packets.Close() }
+func (s *aTrustSession) Done() <-chan struct{} { return s.packets.Done() }
 func (s *aTrustSession) Err() error {
 	if err := s.packets.Err(); err != nil {
 		return err
@@ -509,7 +538,15 @@ func (s *aTrustSession) DialContext(ctx context.Context, network, address string
 		return nil, err
 	}
 	if network != "tcp" {
-		return nil, errors.New("aTrust supports TCP connections only")
+		return s.packets.dialPacket(ctx, network, address, s.dns, func(ip netip.Addr, protocol string, port int) error {
+			if !ip.Is4() {
+				return ErrAddressFamily
+			}
+			if err := s.client.CheckL3Target(net.IP(ip.AsSlice()), protocol, port); err != nil {
+				return fmt.Errorf("%w: aTrust target is outside the permitted %s resources", ErrResourceDenied, protocol)
+			}
+			return nil
+		})
 	}
 	host, portText, err := net.SplitHostPort(address)
 	if err != nil {
@@ -545,14 +582,14 @@ func (s *aTrustSession) DialContext(ctx context.Context, network, address string
 		if ips := s.dns[canonical]; len(ips) > 0 {
 			ip = ips[0]
 		} else {
-			ips, e := s.packets.stack.LookupContextHost(ctx, canonical)
+			ips, e := s.packets.lookupPacketHost(ctx, canonical, nil)
 			if e != nil {
 				return nil, e
 			}
 			if len(ips) == 0 {
 				return nil, errors.New("VPN DNS returned no addresses")
 			}
-			ip = net.ParseIP(ips[0])
+			ip = net.IP(ips[0].AsSlice())
 		}
 		if chosen != nil {
 			ctx = context.WithValue(ctx, resolve.ContextKeyDomainResource, *chosen)

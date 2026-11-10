@@ -111,6 +111,15 @@ func isAuthTimeoutErr(err error) bool {
 }
 
 func buildPacketMeta(packet zctcpip.IPv4Packet) (packetMeta, error) {
+	if len(packet) < zctcpip.IPv4HeaderSize || packet[0]>>4 != zctcpip.IPv4Version {
+		return packetMeta{}, fmt.Errorf("invalid IPv4 packet")
+	}
+	headerLength := int(packet.HeaderLen())
+	totalLength := int(packet.TotalLen())
+	if headerLength < zctcpip.IPv4HeaderSize || headerLength > len(packet) || totalLength < headerLength || totalLength > len(packet) {
+		return packetMeta{}, fmt.Errorf("invalid IPv4 packet length")
+	}
+	payload := packet.Payload()
 	if packet.Protocol() == zctcpip.ICMP {
 		return packetMeta{
 			atype:   4,
@@ -125,11 +134,17 @@ func buildPacketMeta(packet zctcpip.IPv4Packet) (packetMeta, error) {
 	var srcPort, dstPort uint16
 	switch packet.Protocol() {
 	case zctcpip.TCP:
-		tcpPacket := zctcpip.TCPPacket(packet.Payload())
+		if len(payload) < zctcpip.TCPHeaderSize {
+			return packetMeta{}, fmt.Errorf("invalid TCP packet length")
+		}
+		tcpPacket := zctcpip.TCPPacket(payload)
 		srcPort = tcpPacket.SourcePort()
 		dstPort = tcpPacket.DestinationPort()
 	case zctcpip.UDP:
-		udpPacket := zctcpip.UDPPacket(packet.Payload())
+		if len(payload) < zctcpip.UDPHeaderSize {
+			return packetMeta{}, fmt.Errorf("invalid UDP packet length")
+		}
+		udpPacket := zctcpip.UDPPacket(payload)
 		srcPort = udpPacket.SourcePort()
 		dstPort = udpPacket.DestinationPort()
 	default:

@@ -225,7 +225,11 @@ func (r *Runner) Run(ctx context.Context, o Options) error {
 			}
 			o.Listen = old.Listen
 		} else {
-			o.Listen = availableListener()
+			var reserved []string
+			for _, listener := range c.Listeners {
+				reserved = append(reserved, listener.Listen)
+			}
+			o.Listen = availableListener(reserved...)
 		}
 		if !o.NonInteractive {
 			o.Listen, err = r.ask("Mixed SOCKS5/HTTP listener", o.Listen)
@@ -430,8 +434,22 @@ func (r *Runner) trustCertificates(ctx context.Context, certs []vpn.CertificateI
 	}
 	return name, nil
 }
-func availableListener() string {
+func availableListener(reserved ...string) string {
+	ports := make(map[int]bool, len(reserved))
+	for _, address := range reserved {
+		_, port, err := net.SplitHostPort(address)
+		if err != nil {
+			continue
+		}
+		n, err := strconv.Atoi(port)
+		if err == nil {
+			ports[n] = true
+		}
+	}
 	for port := 1080; port < 1100; port++ {
+		if ports[port] {
+			continue
+		}
 		a := fmt.Sprintf("127.0.0.1:%d", port)
 		l, e := net.Listen("tcp", a)
 		if e == nil {
@@ -439,12 +457,26 @@ func availableListener() string {
 			return a
 		}
 	}
-	l, e := net.Listen("tcp", "127.0.0.1:0")
-	if e != nil {
-		return "127.0.0.1:1080"
+	var rejected []net.Listener
+	defer func() {
+		for _, listener := range rejected {
+			listener.Close()
+		}
+	}()
+	for range len(ports) + 1 {
+		l, e := net.Listen("tcp", "127.0.0.1:0")
+		if e != nil {
+			return ""
+		}
+		if ports[l.Addr().(*net.TCPAddr).Port] {
+			rejected = append(rejected, l)
+			continue
+		}
+		address := l.Addr().String()
+		l.Close()
+		return address
 	}
-	defer l.Close()
-	return l.Addr().String()
+	return ""
 }
 func ensureConfigParent(path string) error {
 	if info, err := os.Lstat(path); err == nil && (!info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0) {
@@ -463,7 +495,16 @@ func mergeConfig(original []byte, c config.Config, name, managedStatePath string
 	} else {
 		doc = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
 	}
+	copy, err := copyYAMLNode(&doc)
+	if err != nil {
+		return nil, err
+	}
+	doc = *copy
 	root := doc.Content[0]
+	var effective map[string]yaml.Node
+	if err := root.Decode(&effective); err != nil {
+		return nil, errors.New("invalid existing YAML mapping")
+	}
 	p := c.Profiles[name]
 	if p.AuthStateFile == managedStatePath {
 		p.AuthStateFile = config.ManagedPath
@@ -472,7 +513,10 @@ func mergeConfig(original []byte, c config.Config, name, managedStatePath string
 		p.TunnelCertificateFile = config.ManagedPath
 	}
 	for key, value := range map[string]any{"profiles": p, "listeners": c.Listeners[name]} {
-		mapping := mappingNode(root, key)
+		mapping, err := mappingNode(root, key, effective[key])
+		if err != nil {
+			return nil, err
+		}
 		setNode(mapping, name, value)
 	}
 	var out bytes.Buffer
@@ -483,18 +527,75 @@ func mergeConfig(original []byte, c config.Config, name, managedStatePath string
 	}
 	return out.Bytes(), nil
 }
-func mappingNode(parent *yaml.Node, key string) *yaml.Node {
+func copyYAMLNode(node *yaml.Node) (*yaml.Node, error) {
+	remaining := 100000
+	remainingBytes := 8 << 20
+	active := make(map[*yaml.Node]bool)
+	var clone func(*yaml.Node, int) (*yaml.Node, error)
+	clone = func(node *yaml.Node, depth int) (*yaml.Node, error) {
+		if node == nil {
+			return nil, errors.New("configuration contains an invalid YAML alias")
+		}
+		if active[node] {
+			return nil, errors.New("configuration uses recursive YAML aliases; remove the cycle before running setup")
+		}
+		size := len(node.Value) + len(node.Tag) + len(node.HeadComment) + len(node.LineComment) + len(node.FootComment)
+		if remaining <= len(node.Content) || depth > 256 || size > remainingBytes {
+			return nil, errors.New("configuration YAML is too large or deeply nested to expand safely; simplify it before running setup")
+		}
+		remaining--
+		remainingBytes -= size
+		active[node] = true
+		defer delete(active, node)
+		if node.Kind == yaml.AliasNode {
+			copy, err := clone(node.Alias, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			if node.HeadComment != "" {
+				copy.HeadComment = node.HeadComment
+			}
+			if node.LineComment != "" {
+				copy.LineComment = node.LineComment
+			}
+			if node.FootComment != "" {
+				copy.FootComment = node.FootComment
+			}
+			return copy, nil
+		}
+		copy := *node
+		copy.Anchor, copy.Alias = "", nil
+		copy.Content = make([]*yaml.Node, len(node.Content))
+		for i, child := range node.Content {
+			var err error
+			copy.Content[i], err = clone(child, depth+1)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return &copy, nil
+	}
+	return clone(node, 0)
+}
+func mappingNode(parent *yaml.Node, key string, inherited yaml.Node) (*yaml.Node, error) {
 	for i := 0; i < len(parent.Content); i += 2 {
 		if parent.Content[i].Value == key {
 			if parent.Content[i+1].Kind != yaml.MappingNode {
 				parent.Content[i+1] = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 			}
-			return parent.Content[i+1]
+			return parent.Content[i+1], nil
 		}
 	}
 	n := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	if inherited.Kind == yaml.MappingNode {
+		var err error
+		n, err = copyYAMLNode(&inherited)
+		if err != nil {
+			return nil, err
+		}
+	}
 	parent.Content = append(parent.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key, Tag: "!!str"}, n)
-	return n
+	return n, nil
 }
 func setNode(parent *yaml.Node, key string, value any) {
 	var node yaml.Node

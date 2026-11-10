@@ -11,6 +11,7 @@ type trackedSession struct {
 	Session
 	mu          sync.Mutex
 	closed      bool
+	done        chan struct{}
 	connections map[*trackedConn]struct{}
 }
 type trackedConn struct {
@@ -20,7 +21,19 @@ type trackedConn struct {
 }
 
 func newTrackedSession(s Session) *trackedSession {
-	return &trackedSession{Session: s, connections: make(map[*trackedConn]struct{})}
+	tracked := &trackedSession{Session: s, connections: make(map[*trackedConn]struct{}), done: make(chan struct{})}
+	if health, ok := s.(interface{ Done() <-chan struct{} }); ok {
+		if done := health.Done(); done != nil {
+			go func() {
+				select {
+				case <-done:
+					tracked.Close()
+				case <-tracked.done:
+				}
+			}()
+		}
+	}
+	return tracked
 }
 func (s *trackedSession) DialContext(ctx context.Context, n, a string) (net.Conn, error) {
 	s.mu.Lock()
@@ -61,6 +74,7 @@ func (s *trackedSession) Close() error {
 		return nil
 	}
 	s.closed = true
+	close(s.done)
 	conns := make([]*trackedConn, 0, len(s.connections))
 	for c := range s.connections {
 		conns = append(conns, c)

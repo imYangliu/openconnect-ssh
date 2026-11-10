@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	mathrand "math/rand"
@@ -24,6 +25,9 @@ const (
 	maxAttempts  = 5
 	maxAuthSteps = 8
 )
+
+var errUnsafeRedirect = errors.New("authentication redirect must use an HTTPS host without user information")
+var errRedirectLimit = errors.New("authentication redirect limit exceeded")
 
 var sharedParams = url.Values{
 	"clientType": {"SDPClient"},
@@ -132,7 +136,15 @@ func NewSessionContext(ctx context.Context, server string, tlsKeyLogWriter io.Wr
 		tr.DialContext = dialContext[0]
 	}
 	jar, _ := cookiejar.New(nil)
-	httpClient := &http.Client{Transport: tr, Jar: jar, Timeout: 20 * time.Second}
+	httpClient := &http.Client{Transport: tr, Jar: jar, Timeout: 20 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errRedirectLimit
+		}
+		if req.URL == nil || req.URL.Scheme != "https" || req.URL.Hostname() == "" || req.URL.User != nil {
+			return errUnsafeRedirect
+		}
+		return nil
+	}}
 
 	return &Session{
 		ctx:      ctx,
@@ -152,6 +164,12 @@ func (s *Session) request(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		stop()
 		cancel()
+		if errors.Is(err, errUnsafeRedirect) {
+			return nil, errUnsafeRedirect
+		}
+		if errors.Is(err, errRedirectLimit) {
+			return nil, errRedirectLimit
+		}
 		return nil, err
 	}
 

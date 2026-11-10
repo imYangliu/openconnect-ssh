@@ -116,3 +116,57 @@ func TestDomainRulePreservesNameAfterUnmatchedCIDR(t *testing.T) {
 		t.Fatalf("domain rule used system-resolved address: %s", target)
 	}
 }
+
+type decisionDialer struct{ via, address string }
+
+func (d *decisionDialer) Dial(_ context.Context, via, address string) (net.Conn, error) {
+	d.via, d.address = via, address
+	return nil, errors.New("fixture dial")
+}
+
+func TestResolveSharesExactSelectionWithDial(t *testing.T) {
+	for _, tc := range []struct {
+		name                                      string
+		request                                   Request
+		rules                                     []config.Rule
+		wantVia, wantAddress, wantReason, wantDNS string
+		wantRule, wantLookups                     int
+	}{
+		{"fixed-vpn", Request{Host: "host.internal", Port: "22", Via: "campus"}, nil, "campus", "host.internal:22", "fixed", "backend", 0, 0},
+		{"fixed-direct", Request{Host: "localhost", Port: "22", Via: "direct"}, nil, "direct", "localhost:22", "fixed", "system_at_dial", 0, 0},
+		{"cidr-before-domain", Request{Host: "host.internal", Port: "22", Policy: "auto"}, []config.Rule{{CIDR: "10.0.0.0/8", Via: "campus"}, {Domain: "host.internal", Via: "direct"}}, "campus", "10.2.3.4:22", "cidr", "system", 1, 1},
+		{"domain-after-unmatched-cidr", Request{Host: "host.internal", Port: "22", Policy: "auto"}, []config.Rule{{CIDR: "192.168.0.0/16", Via: "direct"}, {DomainSuffix: "internal", Via: "campus"}}, "campus", "host.internal:22", "domain_suffix", "backend", 2, 1},
+		{"domain-first", Request{Host: "host.internal", Port: "22", Policy: "auto"}, []config.Rule{{Domain: "host.internal", Via: "campus"}, {CIDR: "10.0.0.0/8", Via: "direct"}}, "campus", "host.internal:22", "domain", "backend", 1, 0},
+		{"literal-cidr", Request{Host: "10.9.8.7", Port: "22", Policy: "auto"}, []config.Rule{{CIDR: "10.0.0.0/8", Via: "campus"}}, "campus", "10.9.8.7:22", "cidr", "literal", 1, 0},
+		{"suffix-boundary", Request{Host: "notinternal", Port: "22", Policy: "auto"}, []config.Rule{{DomainSuffix: "internal", Via: "campus"}}, "direct", "notinternal:22", "unmatched", "system_at_dial", 0, 0},
+		{"unmatched-cidr", Request{Host: "host.internal", Port: "22", Policy: "auto"}, []config.Rule{{CIDR: "192.168.0.0/16", Via: "campus"}}, "direct", "203.0.113.1:22", "unmatched", "system", 0, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := config.Config{Profiles: map[string]config.Profile{"campus": {}}, Policies: map[string]config.Policy{"auto": {Rules: tc.rules}}}
+			resolver := &fakeResolver{addresses: []netip.Addr{netip.MustParseAddr("203.0.113.1"), netip.MustParseAddr("10.2.3.4")}}
+			dialer := &decisionDialer{}
+			r := Router{settings: c, resolver: resolver, sessions: dialer}
+			d, err := r.Resolve(context.Background(), tc.request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if d.Via != tc.wantVia || d.Address != tc.wantAddress || d.Reason != tc.wantReason || d.DNS != tc.wantDNS || d.RuleIndex != tc.wantRule || resolver.calls != tc.wantLookups {
+				t.Fatalf("unexpected decision %+v; DNS lookups %d", d, resolver.calls)
+			}
+			resolver.calls = 0
+			r.Dial(context.Background(), tc.request)
+			if dialer.via != d.Via || dialer.address != d.Address || resolver.calls != tc.wantLookups {
+				t.Fatalf("explanation diverged from dial: %+v -> %+v, lookups %d", d, dialer, resolver.calls)
+			}
+		})
+	}
+}
+
+func TestResolveDNSFailureIsTyped(t *testing.T) {
+	r := Router{settings: config.Config{Policies: map[string]config.Policy{"auto": {Rules: []config.Rule{{CIDR: "10.0.0.0/8", Via: "direct"}}}}}, resolver: &fakeResolver{}}
+	_, err := r.Resolve(context.Background(), Request{Host: "fixture.invalid", Port: "22", Policy: "auto"})
+	var dns *DNSError
+	if !errors.As(err, &dns) {
+		t.Fatalf("missing DNS failure category: %v", err)
+	}
+}

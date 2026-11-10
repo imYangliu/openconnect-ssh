@@ -21,8 +21,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build CLI
-        run: make build
+      - name: Check and build CLI
+        run: make check
 
       - name: Package CLI
         run: |
@@ -60,8 +60,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build CLI
-        run: make build
+      - name: Check and build CLI
+        run: make check
 
       - name: Package CLI
         run: |
@@ -113,10 +113,15 @@ jobs:
           files="$(find dist -maxdepth 1 -type f | sort)"
           if gh release view "${version}" >/dev/null 2>&1; then
             gh release upload "${version}" ${files} --clobber
-          else
-            prerelease_args=()
-            if [[ "${version}" == *-* ]]; then
-              prerelease_args+=(--prerelease)
+            if [[ "${version}" != *-* ]]; then
+              gh release edit "${version}" --latest
             fi
-            gh release create "${version}" ${files} --title "${version}" --generate-notes "${prerelease_args[@]}"
+          else
+            release_args=()
+            if [[ "${version}" == *-* ]]; then
+              release_args+=(--prerelease)
+            else
+              release_args+=(--latest)
+            fi
+            gh release create "${version}" ${files} --title "${version}" --generate-notes "${release_args[@]}"
           fi

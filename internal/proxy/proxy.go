@@ -4,13 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"strconv"
+	"net/http/httptrace"
+	"net/textproto"
 	"strings"
 	"time"
 
@@ -48,7 +48,18 @@ func Relay(ctx context.Context, a, b net.Conn) {
 	<-done
 	<-done
 }
-func HandleMixed(ctx context.Context, conn net.Conn, via string, sessions Dialer) {
+
+type Handler struct {
+	sessions   Dialer
+	udpSlots   chan struct{}
+	udpOptions socksUDPOptions
+}
+
+func NewHandler(sessions Dialer) *Handler {
+	return &Handler{sessions: sessions, udpSlots: make(chan struct{}, 128), udpOptions: defaultSOCKSUDPOptions()}
+}
+
+func (h *Handler) HandleMixed(ctx context.Context, conn net.Conn, via string) {
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(20 * time.Second))
 	reader := bufio.NewReader(conn)
@@ -58,12 +69,12 @@ func HandleMixed(ctx context.Context, conn net.Conn, via string, sessions Dialer
 	}
 	buffered := &bufferedConn{Conn: conn, reader: reader}
 	if first[0] == 5 {
-		handleSOCKS(ctx, buffered, via, sessions)
+		h.handleSOCKS(ctx, buffered, via)
 	} else {
-		handleHTTP(ctx, buffered, via, sessions)
+		handleHTTP(ctx, buffered, via, h.sessions)
 	}
 }
-func handleSOCKS(ctx context.Context, conn net.Conn, via string, sessions Dialer) {
+func (h *Handler) handleSOCKS(ctx context.Context, conn net.Conn, via string) {
 	header := make([]byte, 2)
 	if _, err := io.ReadFull(conn, header); err != nil || header[0] != 5 {
 		return
@@ -89,43 +100,29 @@ func handleSOCKS(ctx context.Context, conn net.Conn, via string, sessions Dialer
 	if _, err := io.ReadFull(conn, request); err != nil {
 		return
 	}
-	if request[0] != 5 || request[1] != 1 || request[2] != 0 {
+	if request[0] != 5 || (request[1] != 1 && request[1] != 3) || request[2] != 0 {
 		socksReply(conn, 7)
 		return
 	}
-	var host string
-	switch request[3] {
-	case 1:
-		address := make([]byte, 4)
-		if _, err := io.ReadFull(conn, address); err != nil {
-			return
-		}
-		host = net.IP(address).String()
-	case 4:
-		address := make([]byte, 16)
-		if _, err := io.ReadFull(conn, address); err != nil {
-			return
-		}
-		host = net.IP(address).String()
-	case 3:
-		length := make([]byte, 1)
-		if _, err := io.ReadFull(conn, length); err != nil {
-			return
-		}
-		address := make([]byte, int(length[0]))
-		if _, err := io.ReadFull(conn, address); err != nil {
-			return
-		}
-		host = string(address)
-	default:
+	if request[3] != 1 && request[3] != 3 && request[3] != 4 {
 		socksReply(conn, 8)
 		return
 	}
-	portBytes := make([]byte, 2)
-	if _, err := io.ReadFull(conn, portBytes); err != nil {
+	host, port, err := readSOCKSAddress(conn, request[3])
+	if err != nil {
 		return
 	}
-	port := strconv.Itoa(int(binary.BigEndian.Uint16(portBytes)))
+	if request[1] == 3 {
+		select {
+		case h.udpSlots <- struct{}{}:
+			defer func() { <-h.udpSlots }()
+		default:
+			socksReply(conn, 1)
+			return
+		}
+		handleSOCKSUDP(ctx, conn, via, h.sessions, request[3], host, port, h.udpOptions)
+		return
+	}
 	if err := routing.ValidateTarget(host, port); err != nil {
 		socksReply(conn, 1)
 		return
@@ -133,7 +130,7 @@ func handleSOCKS(ctx context.Context, conn net.Conn, via string, sessions Dialer
 	conn.SetDeadline(time.Now().Add(65 * time.Second))
 	dialCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	remote, err := sessions.Dial(dialCtx, via, net.JoinHostPort(host, port))
+	remote, err := h.sessions.Dial(dialCtx, via, net.JoinHostPort(host, port))
 	if err != nil {
 		socksReply(conn, 5)
 		return
@@ -171,7 +168,11 @@ func handleHTTP(ctx context.Context, conn net.Conn, via string, sessions Dialer)
 	if err != nil {
 		return
 	}
-	defer request.Body.Close()
+	defer func() {
+		// Body.Close can drain unread uploads; close this one-shot connection first.
+		conn.Close()
+		request.Body.Close()
+	}()
 	if request.Method == http.MethodConnect {
 		host, port, err := net.SplitHostPort(request.Host)
 		if err != nil || routing.ValidateTarget(host, port) != nil {
@@ -210,7 +211,14 @@ func handleHTTP(ctx context.Context, conn net.Conn, via string, sessions Dialer)
 	stripHopHeaders(request.Header)
 	requestCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	request = request.WithContext(requestCtx)
+	request = request.WithContext(httptrace.WithClientTrace(requestCtx, &httptrace.ClientTrace{
+		Got1xxResponse: func(code int, header textproto.MIMEHeader) error {
+			forwarded := http.Header(header).Clone()
+			stripHopHeaders(forwarded)
+			response := &http.Response{StatusCode: code, ProtoMajor: 1, ProtoMinor: 1, Header: forwarded}
+			return response.Write(conn)
+		},
+	}))
 	conn.SetDeadline(time.Now().Add(5 * time.Minute))
 	response, err := transport.RoundTrip(request)
 	if err != nil {
@@ -238,6 +246,8 @@ func writeHTTPError(conn net.Conn, code int, message string) {
 // Dialer opens a connection through the listener's fixed VPN profile.
 type Dialer interface {
 	Dial(context.Context, string, string) (net.Conn, error)
+	DialNetwork(context.Context, string, string, string) (net.Conn, error)
+	SessionDone(context.Context, string) (<-chan struct{}, error)
 }
 
 func Buffered(conn net.Conn, reader *bufio.Reader) net.Conn {

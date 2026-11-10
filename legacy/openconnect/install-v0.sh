@@ -2,7 +2,7 @@
 set -euo pipefail
 
 OCH_REPO="${OCH_REPO:-imyangliu/openconnect-ssh}"
-OCH_VERSION="${OCH_VERSION:-latest}"
+OCH_VERSION="${OCH_VERSION:-v0.1.0-alpha.2}"
 OCH_GITHUB_API_URL="${OCH_GITHUB_API_URL:-https://api.github.com/repos/${OCH_REPO}}"
 OCH_RELEASE_BASE_URL="${OCH_RELEASE_BASE_URL:-https://github.com/${OCH_REPO}/releases/download}"
 
@@ -27,7 +27,7 @@ Environment:
   BIN_DIR                Default: \$PREFIX/bin
   LIBEXEC_DIR            Default: \$PREFIX/libexec/och
   CONFIG_DIR             Default: /etc/och
-  OCH_VERSION            Release tag to install; default: latest
+  OCH_VERSION            Legacy release tag to install; default: v0.1.0-alpha.2
   OCH_RELEASE_BASE_URL   Release download base URL
 EOF
 }

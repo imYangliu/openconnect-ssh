@@ -37,14 +37,27 @@ func NewManager(ctx context.Context, profiles map[string]config.Profile, factory
 	return &Manager{ctx: ctx, cancel: cancel, profiles: profiles, factory: factory, entries: make(map[string]*sessionEntry)}
 }
 func (m *Manager) Dial(ctx context.Context, via, address string) (net.Conn, error) {
-	if via == "direct" {
+	return m.DialNetwork(ctx, via, "tcp", address)
+}
+
+// DialNetwork selects a VPN network; direct connections are limited to TCP.
+func (m *Manager) DialNetwork(ctx context.Context, via, network, address string) (net.Conn, error) {
+	switch network {
+	case "tcp", "udp", "ping", "ping4", "ping6":
+	default:
+		return nil, errors.New("unsupported VPN network")
+	}
+	if via == "direct" && network == "tcp" {
 		return (&net.Dialer{}).DialContext(ctx, "tcp", address)
+	}
+	if via == "direct" {
+		return nil, errors.New("UDP and ping require a named VPN profile")
 	}
 	entry, err := m.getEntry(ctx, via)
 	if err != nil {
 		return nil, err
 	}
-	conn, err := entry.session.DialContext(ctx, "tcp", address)
+	conn, err := entry.session.DialContext(ctx, network, address)
 	if err != nil {
 		if health, ok := entry.session.(interface{ Err() error }); ok {
 			if terminal := health.Err(); terminal != nil {
@@ -53,6 +66,15 @@ func (m *Manager) Dial(ctx context.Context, via, address string) (net.Conn, erro
 		}
 	}
 	return conn, err
+}
+
+// SessionDone binds a proxy association to the current shared VPN lifetime.
+func (m *Manager) SessionDone(ctx context.Context, via string) (<-chan struct{}, error) {
+	entry, err := m.getEntry(ctx, via)
+	if err != nil {
+		return nil, err
+	}
+	return entry.session.(*trackedSession).done, nil
 }
 func (m *Manager) getEntry(ctx context.Context, via string) (*sessionEntry, error) {
 	profile, ok := m.profiles[via]

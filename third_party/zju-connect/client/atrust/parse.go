@@ -251,7 +251,8 @@ func (c *Client) parseResource(resource []byte) error {
 							if ip != nil {
 								if ip.To4() != nil {
 									ipSetBuilder.Add(netaddr.MustParseIP(ip.String()))
-									c.dnsResource[hostStr] = append(c.dnsResource[hostStr], ip)
+									dnsHost := strings.ToLower(strings.TrimSuffix(hostStr, "."))
+									c.dnsResource[dnsHost] = append(c.dnsResource[dnsHost], ip)
 									c.ipResources = append(c.ipResources, client.IPResource{
 										IPMin: ip, IPMax: ip, PortMin: portMin, PortMax: portMax,
 										Protocol: address.Protocol, AppID: appItem.ID, NodeGroupID: appItem.NodeGroupID,

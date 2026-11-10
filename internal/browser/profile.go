@@ -56,7 +56,7 @@ func privateOwned(info os.FileInfo, mode os.FileMode) bool {
 
 func checkProfileMarker(path string) error {
 	marker := filepath.Join(path, ".och-profile")
-	file, err := os.OpenFile(marker, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	file, err := os.OpenFile(marker, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err == nil {
 		defer file.Close()
 		info, statErr := file.Stat()

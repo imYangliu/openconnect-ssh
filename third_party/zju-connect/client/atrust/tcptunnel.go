@@ -391,12 +391,7 @@ func (c *tcpTunnelConn) Write(b []byte) (int, error) {
 }
 
 func (c *tcpTunnelConn) Close() error {
-	writeErr := c.CloseWrite()
-	closeErr := c.tlsConn.Close()
-	if writeErr != nil {
-		return writeErr
-	}
-	return closeErr
+	return c.tlsConn.Close()
 }
 
 func (c *tcpTunnelConn) CloseRead() error {

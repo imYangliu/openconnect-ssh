@@ -196,15 +196,6 @@ func Install(ctx context.Context, executable, configPath string) error {
 	return nil
 }
 
-// ReadStatus is a read-only readiness check, not proof of VPN authentication.
-func ReadStatus(ctx context.Context, c config.Config) (daemon.Reply, error) {
-	conn, reply, err := daemon.RequestControl(ctx, c, daemon.Request{Action: "status"})
-	if conn != nil {
-		conn.Close()
-	}
-	return reply, err
-}
-
 func privateFile(f *os.File) error {
 	info, err := f.Stat()
 	if err != nil {

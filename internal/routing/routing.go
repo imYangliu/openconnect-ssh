@@ -37,50 +37,103 @@ func ValidateTarget(host, port string) error {
 	}
 	return nil
 }
+
+type Decision struct {
+	Via       string   `json:"via"`
+	Address   string   `json:"address"`
+	Policy    string   `json:"policy,omitempty"`
+	Reason    string   `json:"reason"`
+	RuleIndex int      `json:"rule_index,omitempty"`
+	Match     string   `json:"match,omitempty"`
+	DNS       string   `json:"dns"`
+	Resolved  []string `json:"resolved,omitempty"`
+}
+
+type DNSError struct{ Err error }
+
+func (e *DNSError) Error() string { return e.Err.Error() }
+func (e *DNSError) Unwrap() error { return e.Err }
+
 func (r *Router) Dial(ctx context.Context, request Request) (net.Conn, error) {
-	host := strings.Trim(request.Host, "[]")
-	if err := ValidateTarget(host, request.Port); err != nil {
+	decision, err := r.Resolve(ctx, request)
+	if err != nil {
 		return nil, err
 	}
+	return r.sessions.Dial(ctx, decision.Via, decision.Address)
+}
+
+func (r *Router) Resolve(ctx context.Context, request Request) (Decision, error) {
+	host := strings.Trim(request.Host, "[]")
+	if err := ValidateTarget(host, request.Port); err != nil {
+		return Decision{}, err
+	}
 	if (request.Via == "") == (request.Policy == "") {
-		return nil, errors.New("specify exactly one of --via or --policy")
+		return Decision{}, errors.New("specify exactly one of --via or --policy")
+	}
+	var addresses []netip.Addr
+	selected := func(via, address, reason, match string, rule int) Decision {
+		dns := "backend"
+		addressHost, _, _ := net.SplitHostPort(address)
+		if _, err := netip.ParseAddr(addressHost); err == nil {
+			dns = "literal"
+		} else if via == "direct" {
+			dns = "system_at_dial"
+		}
+		d := Decision{Via: via, Address: address, Policy: request.Policy, Reason: reason, RuleIndex: rule, Match: match, DNS: dns}
+		for _, ip := range addresses {
+			d.Resolved = append(d.Resolved, ip.Unmap().String())
+		}
+		if len(addresses) > 0 && (reason == "cidr" || reason == "unmatched") {
+			d.DNS = "system"
+		}
+		return d
 	}
 	if request.Via != "" {
 		if err := r.settings.ValidateVia(request.Via); err != nil {
-			return nil, err
+			return Decision{}, err
 		}
-		return r.sessions.Dial(ctx, request.Via, net.JoinHostPort(host, request.Port))
+		return selected(request.Via, net.JoinHostPort(host, request.Port), "fixed", "", 0), nil
 	}
 	policy, ok := r.settings.Policies[request.Policy]
 	if !ok {
-		return nil, fmt.Errorf("unknown policy %q", request.Policy)
+		return Decision{}, fmt.Errorf("unknown policy %q", request.Policy)
 	}
 	if ip, err := netip.ParseAddr(host); err == nil {
-		return r.sessions.Dial(ctx, matchIP(policy, ip), net.JoinHostPort(ip.String(), request.Port))
+		for i, rule := range policy.Rules {
+			if rule.CIDR != "" {
+				prefix, err := netip.ParsePrefix(rule.CIDR)
+				if err == nil && prefix.Contains(ip.Unmap()) {
+					return selected(rule.Via, net.JoinHostPort(ip.String(), request.Port), "cidr", rule.CIDR, i+1), nil
+				}
+			}
+		}
+		return selected("direct", net.JoinHostPort(ip.String(), request.Port), "unmatched", "", 0), nil
 	}
 	domain := strings.TrimSuffix(strings.ToLower(host), ".")
-	var addresses []netip.Addr
-	for _, rule := range policy.Rules {
+	for i, rule := range policy.Rules {
 		exact := strings.TrimSuffix(strings.ToLower(rule.Domain), ".")
 		suffix := strings.Trim(strings.ToLower(rule.DomainSuffix), ".")
-		if exact != "" && domain == exact || suffix != "" && (domain == suffix || strings.HasSuffix(domain, "."+suffix)) {
-			return r.sessions.Dial(ctx, rule.Via, net.JoinHostPort(host, request.Port))
+		if exact != "" && domain == exact {
+			return selected(rule.Via, net.JoinHostPort(host, request.Port), "domain", rule.Domain, i+1), nil
+		}
+		if suffix != "" && (domain == suffix || strings.HasSuffix(domain, "."+suffix)) {
+			return selected(rule.Via, net.JoinHostPort(host, request.Port), "domain_suffix", rule.DomainSuffix, i+1), nil
 		}
 		if rule.CIDR != "" {
 			if len(addresses) == 0 {
 				var err error
 				addresses, err = r.resolver.LookupNetIP(ctx, "ip", host)
 				if err != nil {
-					return nil, fmt.Errorf("resolve %s: %w", host, err)
+					return Decision{}, &DNSError{fmt.Errorf("resolve %s: %w", host, err)}
 				}
 				if len(addresses) == 0 {
-					return nil, fmt.Errorf("resolve %s: no addresses", host)
+					return Decision{}, &DNSError{fmt.Errorf("resolve %s: no addresses", host)}
 				}
 			}
 			prefix, _ := netip.ParsePrefix(rule.CIDR)
-			for _, address := range addresses {
-				if prefix.Contains(address.Unmap()) {
-					return r.sessions.Dial(ctx, rule.Via, net.JoinHostPort(address.Unmap().String(), request.Port))
+			for _, ip := range addresses {
+				if prefix.Contains(ip.Unmap()) {
+					return selected(rule.Via, net.JoinHostPort(ip.Unmap().String(), request.Port), "cidr", rule.CIDR, i+1), nil
 				}
 			}
 		}
@@ -89,18 +142,7 @@ func (r *Router) Dial(ctx context.Context, request Request) (net.Conn, error) {
 	if len(addresses) > 0 {
 		address = addresses[0].Unmap().String()
 	}
-	return r.sessions.Dial(ctx, "direct", net.JoinHostPort(address, request.Port))
-}
-func matchIP(policy config.Policy, ip netip.Addr) string {
-	for _, rule := range policy.Rules {
-		if rule.CIDR != "" {
-			prefix, err := netip.ParsePrefix(rule.CIDR)
-			if err == nil && prefix.Contains(ip.Unmap()) {
-				return rule.Via
-			}
-		}
-	}
-	return "direct"
+	return selected("direct", net.JoinHostPort(address, request.Port), "unmatched", "", 0), nil
 }
 
 // Dialer selects a direct connection or a named VPN session.

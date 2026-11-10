@@ -12,11 +12,13 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/imyangliu/openconnect-ssh/internal/browser"
 	"github.com/imyangliu/openconnect-ssh/internal/config"
 	"github.com/imyangliu/openconnect-ssh/internal/daemon"
 	"github.com/imyangliu/openconnect-ssh/internal/discovery"
+	"github.com/imyangliu/openconnect-ssh/internal/forward"
 	"github.com/imyangliu/openconnect-ssh/internal/routing"
 	"github.com/imyangliu/openconnect-ssh/internal/service"
 	"github.com/imyangliu/openconnect-ssh/internal/setup"
@@ -35,6 +37,17 @@ const help = `och — native VPN sessions and SSH routing
   och logout --via NAME                      Close this VPN and forget saved authentication
   och proxy-command --config FILE --via NAME HOST PORT
   och proxy-command --config FILE --policy NAME HOST PORT
+  och tcping --via NAME [--count 4] [--interval 1s] [--timeout 2s] HOST PORT
+  och ping --via NAME [--count 4] [--interval 1s] [--timeout 2s] IP_OR_DOMAIN
+  och doctor [--json] [--timeout 10s]         Check config and service state
+  och doctor --via NAME HOST PORT            Probe a fixed route
+  och doctor --policy NAME HOST PORT         Explain and probe the live route
+  och doctor --ssh NAME [TARGET]              Check native SSH and optional target
+  och doctor --forward NAME                  Check a saved forwarding rule
+  och forward [--config FILE] NAME...        Run saved TCP forwarding rules
+  och forward --ssh NAME LISTEN TARGET       Forward through native SSH
+  och forward --reverse --ssh NAME LISTEN TARGET
+  och forward --via NAME LISTEN TARGET       Forward directly through a VPN
 
 SOCKS5 and HTTP listeners use the fixed VPN profile in the configuration.
 Policies match domain/domain_suffix/CIDR in order; unmatched targets connect directly.
@@ -58,11 +71,37 @@ func Run(args []string) error {
 	configFile := flags.String("config", config.DefaultPath(), "configuration file")
 	var via, policy, browserPath, server, protocol string
 	var remember bool
+	var sshName string
+	var reverse bool
+	var doctorJSON bool
+	var doctorTimeout time.Duration
+	var ping pingOptions
+	var forwardName string
 	var setupOptions setup.Options
-	if command == "proxy-command" || command == "login" || command == "logout" {
-		flags.StringVar(&via, "via", "", "fixed VPN profile (or direct)")
+	if command == "proxy-command" || command == "login" || command == "logout" || command == "forward" || command == "doctor" || command == "ping" || command == "tcping" {
+		description := "fixed VPN profile (or direct)"
+		if command == "ping" || command == "tcping" {
+			description = "VPN profile from configuration"
+		}
+		flags.StringVar(&via, "via", "", description)
 	}
-	if command == "proxy-command" {
+	if command == "ping" || command == "tcping" {
+		flags.IntVar(&ping.count, "count", 4, "number of probe attempts (1-65535)")
+		flags.DurationVar(&ping.interval, "interval", time.Second, "minimum interval between probe starts (10ms-60s)")
+		flags.DurationVar(&ping.timeout, "timeout", 2*time.Second, "per-probe timeout (up to 60s)")
+	}
+	if command == "doctor" {
+		flags.BoolVar(&doctorJSON, "json", false, "print a structured diagnostic report")
+		flags.DurationVar(&doctorTimeout, "timeout", 10*time.Second, "overall diagnostic timeout")
+		flags.StringVar(&forwardName, "forward", "", "saved forwarding rule to probe")
+	}
+	if command == "forward" || command == "doctor" {
+		flags.StringVar(&sshName, "ssh", "", "native SSH profile from OCH YAML")
+		if command == "forward" {
+			flags.BoolVar(&reverse, "reverse", false, "listen on the SSH host and connect the target from OCH")
+		}
+	}
+	if command == "proxy-command" || command == "doctor" {
 		flags.StringVar(&policy, "policy", "", "routing policy")
 	}
 	if command == "login" || command == "setup" {
@@ -91,7 +130,7 @@ func Run(args []string) error {
 		flags.BoolVar(&noRemember, "no-remember", false, "discard the dedicated browser profile after setup")
 	}
 	switch command {
-	case "serve", "status", "stop", "proxy-command", "login", "logout", "setup", "auth-info", "service":
+	case "serve", "status", "stop", "proxy-command", "login", "logout", "setup", "auth-info", "service", "forward", "doctor", "ping", "tcping":
 	default:
 		return errors.New("unknown command; run och --help")
 	}
@@ -127,11 +166,32 @@ func Run(args []string) error {
 		}}
 		return runner.Run(ctx, setupOptions)
 	}
+	if command == "doctor" {
+		return runDoctor(ctx, path, doctorOptions{via: via, policy: policy, ssh: sshName, forward: forwardName, json: doctorJSON, timeout: doctorTimeout, args: flags.Args()})
+	}
 	c, err := config.Load(path)
 	if err != nil {
 		return err
 	}
 	switch command {
+	case "tcping":
+		ping.via, ping.args = via, flags.Args()
+		return runTCPing(ctx, c, ping, os.Stdout)
+	case "ping":
+		ping.via, ping.args = via, flags.Args()
+		return runPing(ctx, c, ping, os.Stdout)
+	case "forward":
+		rules, err := forwardingRules(c, flags.Args(), sshName, via, reverse)
+		if err != nil {
+			return err
+		}
+		return forward.Run(ctx, c, rules, forwardingDialer(c), func(e forward.Event) {
+			if e.Err != nil {
+				fmt.Fprintf(os.Stderr, "forward %s %s: %v\n", e.Name, e.State, e.Err)
+			} else {
+				fmt.Fprintf(os.Stderr, "forward %s %s %s\n", e.Name, e.State, e.Address)
+			}
+		})
 	case "login":
 		if flags.NArg() != 0 || via == "" {
 			return errors.New("login requires --via NAME and no positional arguments")

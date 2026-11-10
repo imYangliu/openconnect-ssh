@@ -70,7 +70,7 @@ func ownedMode(info os.FileInfo, mode os.FileMode) bool {
 	return ok && int(st.Uid) == os.Getuid() && info.Mode().Perm() == mode
 }
 func (s *Store) read() ([]byte, error) {
-	f, err := os.OpenFile(s.path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := os.OpenFile(s.path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}

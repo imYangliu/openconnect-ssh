@@ -7,7 +7,7 @@
 - `build-native` 已实现 make build。
 - `install-local` 已实现本地源码安装。
 - `user-service` 已实现用户级 launchd/systemd 定义生成与安装入口，隔离测试验证定义和进程启动；Linux 系统服务实机尚未验证。
-- `release-native` 未发布本次原生二进制。
+- `release-native` v0.0.2 发布原生 CLI，提供 macOS arm64 和 Linux x86_64 包；每个包附完整源码与 vendored 依赖，功能以对应标签为准。
 - `legacy` 旧安装器与网络脚本独立保留。
 
 ## How to get to it (user POV)

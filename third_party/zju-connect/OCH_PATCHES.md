@@ -7,6 +7,8 @@ Only the packages needed by `client/atrust` are retained. The `resolve` package 
 
 Local changes:
 
+- CheckL3Target exposes the existing L3 resource matcher for OCH's UDP and ICMP preflight. It preserves protocol, IP range and port permissions without creating system interfaces or duplicating the resource index.
+
 - TLS certificate verification is enabled by default for authentication, IP allocation, TCP tunnels and L3 tunnels. ClientOptions adds a TLSConfig field, passed to the auth HTTP transport and tunnel dialers. OCH's explicit insecure profile option is propagated per client, without global TLS state.
 - Invalid session authentication returns errors instead of exiting the process. Session refresh marks the session invalid and stops that client's refresh loop. L3 resource failures complete their waiting authentication with an error.
 - Logging is suppressed at this module's logger boundary. Upstream diagnostics can include authentication responses, personal details and packet payloads. OCH owns diagnostics; the embedded logger has no Fatal or stdout output.
@@ -17,7 +19,7 @@ Local changes:
 Run local fork checks from the OCH repository root:
 
 ```sh
-go test github.com/mythologyli/zju-connect/client/atrust/...
+go test github.com/mythologyli/zju-connect/...
 ```
 
 Real aTrust gateways, MFA/browser challenges, server-driven address changes and vendor-specific resource policies have not been validated here. Unsupported authentication challenges return an explicit error. The embedded code is a pinned source snapshot, not an automatic upstream update.
@@ -33,3 +35,15 @@ Node selection now passes the same tunnel TLS settings into reachability probes.
 The PEM loader accepts one or more certificate blocks, deduplicates exact DER, and rejects empty, malformed, nested, private-key, header-bearing or trailing non-certificate content. Multiple approved node certificates are supported without automatically trusting later changes. Tests accept each approved member and reject an unlisted certificate, including a changed certificate using an approved public key.
 
 Authentication-state integration adds ResumeOnly to reject expired saved sessions before submitting empty credentials, a BeforeTunnel hook for explicit first-use certificate approval after authenticated resource discovery, and a synchronized ConfigureTunnelTrust boundary before tunnel initialization. The reusable authenticated snapshot is saved before certificate/node setup, and subsequent refreshes use the same save callback. Explicit invalid-SID IP responses wrap ErrSessionInvalid so stale state can be cleared; ordinary network/TLS/resource errors do not erase cache.
+
+TCP tunnel `Close` closes the underlying connection directly so a stalled data write cannot prevent shutdown. Explicit `CloseWrite` retains graceful protocol half-close semantics. The isolated regression test blocks a tunnel write and verifies full close releases it.
+
+Incoming IPv4 connection metadata rejects inconsistent IP header/total lengths and short TCP or UDP headers before reading ports. Malformed packet metadata can no longer panic the tunnel reader. Packet delivery and IPv6 handling remain separate from this metadata check; no checksum or reassembly policy is changed.
+
+Published exact DNS mapping keys are lowercased with a trailing dot removed, matching OCH's native lookup normalization. Equivalent spelling variants share their published address list. Wildcard matching semantics are unchanged.
+
+Authentication HTTP redirects require HTTPS, a hostname and no URL user information, with a ten-hop limit. Policy errors discard the HTTP client's URL-bearing error wrapper so redirect query strings and credentials are not returned in diagnostics. CAS retains its explicit no-follow callback handling. Local TLS and HTTP fixtures verify that authentication bodies are not replayed over cleartext and that ordinary HTTPS redirects remain supported.
+
+TCP node probes construct destinations with `net.JoinHostPort`, preserving bracketed IPv6 addresses as well as IPv4 and DNS names. This changes endpoint formatting, not the probe's TLS trust or node-selection policy.
+
+L3 heartbeat requests no longer count as ordinary outbound activity, so a peer that stops answering cannot reset its own miss counter through each probe. Other successful writes retain the existing activity policy, including writes concurrent with a heartbeat. Authentication-response fallback matching includes the provided IP protocol; protocol-omitted responses are accepted only when the remaining tuple identifies one connection. Connection observation no longer overwrites the protocol in cached authentication metadata, whose identity is set with the queued packet under the existing locks.

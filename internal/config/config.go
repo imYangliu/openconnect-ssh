@@ -44,10 +44,12 @@ type Listener struct {
 	Via    string `yaml:"via"`
 }
 type Config struct {
-	Socket    string              `yaml:"socket"`
-	Profiles  map[string]Profile  `yaml:"profiles"`
-	Policies  map[string]Policy   `yaml:"policies"`
-	Listeners map[string]Listener `yaml:"listeners"`
+	Socket    string                `yaml:"socket"`
+	Profiles  map[string]Profile    `yaml:"profiles"`
+	Policies  map[string]Policy     `yaml:"policies"`
+	Listeners map[string]Listener   `yaml:"listeners"`
+	SSH       map[string]SSHProfile `yaml:"ssh,omitempty"`
+	Forwards  map[string]Forward    `yaml:"forwards,omitempty"`
 }
 
 func DefaultPath() string {
@@ -155,14 +157,17 @@ func Load(path string) (Config, error) {
 		if err := c.ValidateVia(l.Via); err != nil {
 			return c, fmt.Errorf("listener %s: %w", name, err)
 		}
-		host, _, err := net.SplitHostPort(l.Listen)
-		if err != nil {
-			return c, fmt.Errorf("listener %s: %w", name, err)
+		if err := validateEndpoint(l.Listen, true); err != nil {
+			return c, fmt.Errorf("listener %s must use a loopback IP and numeric port 0-65535", name)
 		}
+		host, _, _ := net.SplitHostPort(l.Listen)
 		ip := net.ParseIP(host)
 		if ip == nil || !ip.IsLoopback() {
 			return c, fmt.Errorf("listener %s must use a loopback IP address", name)
 		}
+	}
+	if err := c.normalizeForwards(); err != nil {
+		return c, err
 	}
 	return c, nil
 }

@@ -1,5 +1,7 @@
 # OCH 配置文件说明
 
+本文仅适用于外部 OpenConnect 版本 `v0.1.0-alpha.2`。现行原生 YAML 见[配置参考](../../../docs/configuration.md)。
+
 OCH 的非敏感配置只有一份 TOML：
 
 ```text

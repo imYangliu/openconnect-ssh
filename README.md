@@ -2,7 +2,7 @@
 
 OCH 用一个 Go 二进制提供原生 VPN 会话、SSH ProxyCommand 和 SOCKS5/HTTP 混合代理。它面向通过 SSH 访问校内服务器的场景，也可以作为 sing-box 等应用的 VPN 代理出口。
 
-**`v0.0.1` 是首个原生版本。** 支持 AnyConnect 兼容协议与 aTrust，不调用外部 OpenConnect，不为连接创建系统 TUN 或修改系统路由。
+**当前版本为 `v0.0.2`。** 支持 AnyConnect 兼容协议与 aTrust，提供 VPN ping、TCP 端口探测、SOCKS5 UDP、原生端口转发和分阶段诊断。不调用外部 OpenConnect，不为连接创建系统 TUN 或修改系统路由。
 
 ## 为什么做 OCH
 
@@ -10,8 +10,11 @@ OCH 用一个 Go 二进制提供原生 VPN 会话、SSH ProxyCommand 和 SOCKS5/
 
 - **SSH 固定去向**：指定 VPN 配置，直接通过该 VPN 连接。
 - **SSH 自动分流**：按域名、域名后缀或 CIDR 规则选择路径，未匹配直连。
-- **混合代理导出**：同一回环端口提供 SOCKS5、HTTP CONNECT 和普通 HTTP 代理，固定绑定一个 VPN，由调用方负责分流。
+- **混合代理导出**：同一回环端口提供 SOCKS5 TCP、UDP ASSOCIATE、HTTP CONNECT 和普通 HTTP 代理，固定绑定一个 VPN，由调用方负责分流。
 - **共享会话**：首次使用时认证，多个连接复用同一 VPN 会话；已选定的 VPN 连接失败时返回错误，不回退直连。
+- **分阶段诊断**：`och doctor` 检查配置和后台状态，也可按需检查实际分流路径、VPN、目标 TCP、原生 SSH 和转发监听。
+- **原生 SSH 端口转发**：通过 Go SSH 客户端直接提供正向、反向 TCP 转发；多个规则可复用同一 SSH 会话，也可直接把 VPN 内服务映射到本机端口。
+- **VPN 网络探测**：`och ping --via NAME IP_OR_DOMAIN` 发送 ICMP Echo，`och tcping --via NAME HOST PORT` 检查 TCP 建连；支持次数、间隔、超时和统计。
 
 ## 快速开始
 
@@ -25,7 +28,7 @@ export PATH="$HOME/.local/bin:$PATH"
 och --help
 ```
 
-安装器从当前 checkout 构建，不下载 release，也不安装 OpenConnect。原生重写尚未发布二进制，旧版 release 不支持本文命令。
+安装器从当前 checkout 构建，不下载 release，也不安装 OpenConnect。也可从[发布页](https://github.com/imYangliu/openconnect-ssh/releases)下载 `v0.0.2` 的 macOS arm64 或 Linux x86_64 预编译包。预编译包对应其标签版本，压缩包包含许可证、完整源代码和 vendored 依赖。旧版 `v0.1.0-alpha.2` 使用外部 OpenConnect，不支持原生命令。
 
 然后运行首次配置向导：
 
@@ -46,7 +49,10 @@ och setup
 | macOS | 已在 Apple Silicon 上运行和验证。 |
 | Linux | amd64 交叉编译通过；真实部署需单独验收。 |
 | 认证 | 支持已实现的密码认证流程；AnyConnect 可传入已认证 cookie；aTrust CAS 可用 `och login` 交互登录。其他 MFA/扫码方式未完整支持。 |
-| 代理 | TCP、回环监听；暂不支持 SOCKS5 UDP、Fake IP 映射或代理密码认证。 |
+| 代理 | 回环 SOCKS5 TCP CONNECT、UDP ASSOCIATE 和 HTTP 代理；不支持 Fake IP 映射或代理密码认证。UDP 由隔离测试验证，真实网关兼容性需按资源权限验证。 |
+| VPN ping | `och ping --via NAME IP_OR_DOMAIN` 通过共享会话发送真实 ICMP Echo，支持次数、间隔、超时和统计。aTrust 限 IPv4，需网关允许 ICMP。 |
+| TCP 端口探测 | `och tcping --via NAME HOST PORT` 通过共享 VPN 检查 TCP 建连，支持次数、间隔、超时和统计，不发送应用数据。 |
+| 原生 SSH 转发 | 支持本地正向与远端反向 TCP 转发、私钥、SSH agent、环境变量密码和 known_hosts 校验。使用 OCH YAML 的 SSH 配置，不读取 OpenSSH 别名。已用隔离 SSH 服务和编译后的 CLI 验证。 |
 
 单个网关验证通过不代表所有高校配置均兼容。已有 TUN、校内 DNS、IPv6 和实际断线恢复仍需按环境验证。
 

@@ -14,25 +14,35 @@ import (
 	"time"
 
 	"github.com/imyangliu/openconnect-ssh/internal/config"
+	"github.com/imyangliu/openconnect-ssh/internal/diagnostic"
 	"github.com/imyangliu/openconnect-ssh/internal/proxy"
 	"github.com/imyangliu/openconnect-ssh/internal/routing"
 	"github.com/imyangliu/openconnect-ssh/internal/vpn"
 )
 
 type Reply struct {
-	Error     string            `json:"error,omitempty"`
-	Profiles  map[string]string `json:"profiles,omitempty"`
-	Listeners map[string]string `json:"listeners,omitempty"`
+	TCPingVersion int                `json:"tcping_version,omitempty"`
+	TCPing        *TCPingResult      `json:"tcping,omitempty"`
+	PingVersion   int                `json:"ping_version,omitempty"`
+	Ping          *vpn.PingResult    `json:"ping,omitempty"`
+	Error         string             `json:"error,omitempty"`
+	Diagnostic    *diagnostic.Report `json:"diagnostic,omitempty"`
+	Profiles      map[string]string  `json:"profiles,omitempty"`
+	Listeners     map[string]string  `json:"listeners,omitempty"`
 }
 type daemon struct {
-	settings  config.Config
 	router    *routing.Router
 	sessions  *vpn.Manager
 	cancel    context.CancelFunc
 	mu        sync.Mutex
-	listeners []net.Listener
+	listeners []listenerBinding
 	active    map[net.Conn]struct{}
 	wg        sync.WaitGroup
+}
+
+type listenerBinding struct {
+	net.Listener
+	via string
 }
 
 func Serve(ctx context.Context, c config.Config, factory vpn.Factory, ready func(map[string]string)) error {
@@ -75,13 +85,13 @@ func Serve(ctx context.Context, c config.Config, factory vpn.Factory, ready func
 	defer cancel()
 	sessions := vpn.NewManager(ctx, c.Profiles, factory)
 	defer sessions.Close()
-	d := &daemon{settings: c, sessions: sessions, cancel: cancel, active: make(map[net.Conn]struct{})}
+	d := &daemon{sessions: sessions, cancel: cancel, active: make(map[net.Conn]struct{})}
 	d.router = routing.New(c, sessions)
 	control, err := net.Listen("unix", c.Socket)
 	if err != nil {
 		return err
 	}
-	d.listeners = append(d.listeners, control)
+	d.listeners = append(d.listeners, listenerBinding{Listener: control})
 	defer func() {
 		for _, l := range d.listeners {
 			l.Close()
@@ -97,22 +107,15 @@ func Serve(ctx context.Context, c config.Config, factory vpn.Factory, ready func
 		if err != nil {
 			return fmt.Errorf("listener %s: %w", name, err)
 		}
-		d.listeners = append(d.listeners, listener)
+		d.listeners = append(d.listeners, listenerBinding{Listener: listener, via: l.Via})
 		addresses[name] = listener.Addr().String()
 	}
 	d.wg.Add(1)
 	go d.accept(ctx, control, func(c net.Conn) { d.handleControl(ctx, c, addresses) })
-	// Match listener descriptors by name without relying on map iteration order.
+	mixed := proxy.NewHandler(sessions)
 	for _, listener := range d.listeners[1:] {
-		via := ""
-		for name, address := range addresses {
-			if listener.Addr().String() == address {
-				via = c.Listeners[name].Via
-				break
-			}
-		}
 		d.wg.Add(1)
-		go d.accept(ctx, listener, func(conn net.Conn) { proxy.HandleMixed(ctx, conn, via, sessions) })
+		go d.accept(ctx, listener.Listener, func(conn net.Conn) { mixed.HandleMixed(ctx, conn, listener.via) })
 	}
 	if ready != nil {
 		ready(addresses)
@@ -133,7 +136,7 @@ func Serve(ctx context.Context, c config.Config, factory vpn.Factory, ready func
 func (d *daemon) accept(ctx context.Context, listener net.Listener, handler func(net.Conn)) {
 	defer d.wg.Done()
 	for {
-		conn, err := listener.Accept()
+		conn, err := proxy.Accept(ctx, listener)
 		if err != nil {
 			return
 		}
@@ -168,6 +171,13 @@ func (d *daemon) handleControl(ctx context.Context, conn net.Conn, addresses map
 	}
 	reply := Reply{}
 	switch request.Action {
+	case "tcping":
+		d.handleTCPing(ctx, conn, reader, request)
+	case "ping":
+		d.handlePing(ctx, conn, reader, request)
+	case "diagnose":
+		result := d.diagnose(ctx, request)
+		json.NewEncoder(conn).Encode(Reply{Diagnostic: &result})
 	case "login":
 		d.handleLogin(ctx, conn, reader, request.Via)
 	case "ensure":
@@ -209,6 +219,8 @@ func (d *daemon) handleControl(ctx context.Context, conn net.Conn, addresses map
 }
 
 type Request struct {
-	Action string `json:"action"`
+	Action       string        `json:"action"`
+	PingSequence int           `json:"ping_sequence,omitempty"`
+	Timeout      time.Duration `json:"timeout,omitempty"`
 	routing.Request
 }
